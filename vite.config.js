@@ -12,11 +12,19 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
+            // Solo GET a PostgREST/Storage — nunca /auth/ (login, refresh de token)
+            // ni /functions/ (Edge Functions), que son POST y no deben cachearse ni
+            // pasar por una estrategia de cache que puede colgar la petición.
+            urlPattern: ({ url }) =>
+              url.hostname.endsWith('.supabase.co') &&
+              !url.pathname.startsWith('/auth/') &&
+              !url.pathname.startsWith('/functions/'),
+            method: 'GET',
             handler: 'NetworkFirst',
             options: {
               cacheName: 'supabase-cache',
               expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
+              networkTimeoutSeconds: 8,
             },
           },
         ],

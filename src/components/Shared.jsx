@@ -51,9 +51,8 @@ export function StatusBadge({ active }) {
 
 export function RoleBadge({ role }) {
   const t = role==="teacher";
-  const s = role==="student";
-  const color = t ? C.accent : s ? C.teal : C.warning;
-  const label = t ? "Docente" : s ? "Alumno" : role==="admin" ? "Admin" : "Lectura";
+  const color = t ? C.accent : C.warning;
+  const label = t ? "Docente" : role==="admin" ? "Admin" : "Lectura";
   return (
     <span style={{background:`${color}18`,color,border:`1px solid ${color}44`,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
       {label}

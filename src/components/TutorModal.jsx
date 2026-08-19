@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { sb } from "../lib/supabase";
 import { C } from "../lib/constants";
+import { cleanPhone } from "../lib/whatsapp";
 
 export default function TutorModal({ student, onSave, onClose }) {
   const [tutorName,  setTutorName]  = useState(student.tutor_name  || "");
@@ -8,22 +9,15 @@ export default function TutorModal({ student, onSave, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  // Limpia el número: solo dígitos, agrega 52 si es México y no lo tiene
-  function cleanPhone(raw) {
-    const digits = raw.replace(/\D/g, "");
-    if (digits.length === 10) return "52" + digits;          // 10 dígitos MX
-    if (digits.length === 12 && digits.startsWith("52")) return digits;
-    return digits;
-  }
-
   async function save() {
     if (!tutorPhone.trim()) { setError("El teléfono es requerido"); return; }
     setBusy(true);
+    const cleaned = cleanPhone(tutorPhone.trim());
     const { error: err } = await sb.from("students")
-      .update({ tutor_name: tutorName.trim(), tutor_phone: tutorPhone.trim() })
+      .update({ tutor_name: tutorName.trim(), tutor_phone: cleaned })
       .eq("id", student.id);
     if (err) { setError(err.message); setBusy(false); return; }
-    onSave({ ...student, tutor_name: tutorName.trim(), tutor_phone: tutorPhone.trim() });
+    onSave({ ...student, tutor_name: tutorName.trim(), tutor_phone: cleaned });
   }
 
   return (
@@ -62,28 +56,4 @@ export default function TutorModal({ student, onSave, onClose }) {
       </div>
     </div>
   );
-}
-
-// ── Función utilitaria para abrir WhatsApp ───────────────────────
-export function sendWhatsApp({ student, date, sessionName, status, reason }) {
-  const phone = student.tutor_phone?.replace(/\D/g, "");
-  if (!phone) return false;
-
-  const fullPhone = phone.length === 10 ? "52" + phone : phone;
-  const tutorName = student.tutor_name ? `, ${student.tutor_name}` : "";
-  const fmtDate = new Date(date + "T12:00:00").toLocaleDateString("es-MX", {
-    weekday:"long", day:"numeric", month:"long", year:"numeric"
-  });
-
-  const statusMsg = {
-    absent:  "❌ *FALTA* — no asistió a clases",
-    late:    "🕐 *RETARDO* — llegó tarde a clases",
-    excused: `📝 *FALTA JUSTIFICADA*${reason ? ` — Motivo: ${reason}` : ""}`,
-  }[status] || "ausencia registrada";
-
-  const msg = `Estimado tutor${tutorName}:\n\nLe informamos que el alumno *${student.name}* registró ${statusMsg} el día *${fmtDate}* en la materia/grupo *${sessionName}*.\n\nPor favor comuníquese con la institución si tiene alguna duda.\n\n_CBTIS 179 — AppProf_`;
-
-  const url = `https://wa.me/${fullPhone}?text=${encodeURIComponent(msg)}`;
-  window.open(url, "_blank");
-  return true;
 }

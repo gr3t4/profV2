@@ -4,10 +4,11 @@ import { C, STATUS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Toast, Empty, AddStudentInline } from "./Shared";
 import JustifyModal from "./JustifyModal";
 import ExportModal from "./ExportModal";
-import GradesModule from "./GradesModule";
-import TasksModule from "./TasksModule";
+import ImportPreviewModal from "./ImportPreviewModal";
 import ReportModule from "./ReportModule";
-import TutorModal, { sendWhatsApp } from "./TutorModal";
+import TutorModal from "./TutorModal";
+import { sendWhatsApp } from "../lib/whatsapp";
+import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStudents";
 import * as XLSX from "xlsx";
 export default function TeacherApp({ user, onLogout }) {
   const [sessions, setSessions]         = useState([]);
@@ -15,7 +16,6 @@ export default function TeacherApp({ user, onLogout }) {
   const [view, setView]                 = useState("sessions");
   const [mainTab, setMainTab]           = useState("attendance");
   const [students, setStudents]         = useState([]);
-  const [studentUsers, setStudentUsers] = useState([]);
   const [selectedDate, setSelectedDate] = useState(today());
   const [attendance, setAttendance]     = useState({});
   const [allDates, setAllDates]         = useState([]);
@@ -32,19 +32,20 @@ export default function TeacherApp({ user, onLogout }) {
   const [justifyTarget, setJustifyTarget] = useState(null);
   const [showExport, setShowExport]     = useState(false);
   const [tutorTarget, setTutorTarget]   = useState(null);
+  const [importPreview, setImportPreview] = useState(null); // rows parsed, pending confirmación
   const fileRef = useRef();
   const isViewer = user.role === "viewer";
-
-  useEffect(() => { loadSessions(); }, []);
 
   async function loadSessions() {
     const { data } = await sb.from("sessions").select("*").eq("owner_id", user.id).order("created_at", { ascending:false });
     setSessions(data || []);
   }
 
+  useEffect(() => { (async () => { await loadSessions(); })(); }, []);
+
   async function selectSession(s) {
     setActiveSess(s);
-    const { data:studs } = await sb.from("students").select("*, user:users(id,username,name)").eq("session_id", s.id).order("created_at");
+    const { data:studs } = await sb.from("students").select("*").eq("session_id", s.id).order("created_at");
     setStudents(studs || []);
     const { data:attRows } = await sb.from("attendance").select("date").eq("session_id", s.id);
     const dates = [...new Set((attRows||[]).map(r=>r.date))].sort().reverse();
@@ -112,18 +113,28 @@ export default function TeacherApp({ user, onLogout }) {
   }
   async function deleteSession(id) { await sb.from("sessions").delete().eq("id", id); setSessions(p => p.filter(s => s.id !== id)); showToast("🗑️ Eliminada"); }
 
-  async function importExcel(e) {
+  async function handleFileSelected(e) {
     const file = e.target.files[0]; if (!file) return;
-    const wb = XLSX.read(await file.arrayBuffer());
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1 });
-    const imp = rows.flatMap(r => r[0] && String(r[0]).trim() ? [String(r[0]).trim()] : []);
-    if (!imp.length) { showToast("⚠️ Sin nombres"); return; }
+    e.target.value = "";
+    const rows = await parseStudentsExcel(file);
+    if (!rows.length) { showToast("⚠️ Sin nombres detectados en el archivo"); return; }
+    setImportPreview(rows);
+  }
+
+  async function confirmImport(selectedRows) {
     const existing = students.map(s => s.name.toLowerCase());
-    const newNames = imp.filter(n => !existing.includes(n.toLowerCase()));
-    if (!newNames.length) { showToast("ℹ️ Todos ya existen"); return; }
-    const { data, error } = await sb.from("students").insert(newNames.map(n => ({ session_id:activeSession.id, name:n }))).select();
+    const toInsert = selectedRows.filter(r => !existing.includes(r.name.toLowerCase()));
+    if (!toInsert.length) { showToast("ℹ️ Todos ya existen"); setImportPreview(null); return; }
+    const { data, error } = await sb.from("students").insert(toInsert.map(r => ({
+      session_id: activeSession.id,
+      name: r.name,
+      tutor_name: r.tutorName || null,
+      tutor_phone: r.tutorPhone || null,
+    }))).select();
     if (error) { showToast("❌ " + error.message); return; }
-    setStudents(p => [...p,...data]); showToast(`📥 ${data.length} importados`); e.target.value = "";
+    setStudents(p => [...p, ...data]);
+    setImportPreview(null);
+    showToast(`📥 ${data.length} importados`);
   }
   async function addStudent(name) {
     const { data, error } = await sb.from("students").insert({ session_id:activeSession.id, name:name.trim() }).select().single();
@@ -188,14 +199,6 @@ export default function TeacherApp({ user, onLogout }) {
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 3000); }
 
-  async function regenerateCode() {
-    const code = Math.random().toString(36).substring(2,8).toUpperCase();
-    const { error } = await sb.from("sessions").update({ join_code: code }).eq("id", activeSession.id);
-    if (error) { showToast("❌ " + error.message); return; }
-    setActiveSess(p => ({...p, join_code: code}));
-    showToast("🔄 Código regenerado");
-  }
-
   function saveTutor(updated) {
     setStudents(p => p.map(s => s.id === updated.id ? updated : s));
     setTutorTarget(null);
@@ -214,10 +217,7 @@ export default function TeacherApp({ user, onLogout }) {
 
   const MAIN_TABS = [
     { id:"attendance", label:"📋 Asistencia" },
-    { id:"grades",     label:"📊 Calificaciones" },
-    { id:"tasks",      label:"📝 Tareas" },
     { id:"report",     label:"📈 Reporte" },
-    { id:"students",   label:"👥 Alumnos" },
   ];
 
   return (
@@ -229,6 +229,7 @@ export default function TeacherApp({ user, onLogout }) {
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
       {tutorTarget && <TutorModal student={tutorTarget} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
+      {importPreview && <ImportPreviewModal rows={importPreview} existingNames={students.map(s=>s.name)} onConfirm={confirmImport} onClose={()=>setImportPreview(null)}/>}
 
       <div style={{height:3,background:"linear-gradient(90deg,#b71c1c 33%,#1b3a8a 66%,#c8a020 100%)"}}/>
       <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 14px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
@@ -414,8 +415,9 @@ export default function TeacherApp({ user, onLogout }) {
             {/* Toolbar */}
             {!isViewer&&(
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
-                <button className="btn" onClick={()=>fileRef.current.click()} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>�� Excel</button>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={importExcel} style={{display:"none"}}/>
+                <button className="btn" onClick={()=>fileRef.current.click()} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>📥 Excel</button>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileSelected} style={{display:"none"}}/>
+                <button className="btn" onClick={downloadStudentsTemplate} title="Descargar plantilla de ejemplo" style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",fontSize:13,fontFamily:"inherit"}}>📄 Plantilla</button>
                 <AddStudentInline onAdd={addStudent}/>
                 <div style={{marginLeft:"auto",display:"flex",gap:7,flexWrap:"wrap"}}>
                   <button className="btn" onClick={()=>markAll("present")} style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>✅ Todos</button>
@@ -491,101 +493,9 @@ export default function TeacherApp({ user, onLogout }) {
           </div>
         )}
 
-        {/* GRADES TAB */}
-        {view==="attendance"&&activeSession&&mainTab==="grades"&&(
-          <GradesModule user={user} sessionId={activeSession.id} students={students}/>
-        )}
-
-        {/* TASKS TAB */}
-        {view==="attendance"&&activeSession&&mainTab==="tasks"&&(
-          <TasksModule user={user} sessionId={activeSession.id} students={students}/>
-        )}
-
         {/* REPORT TAB */}
         {view==="attendance"&&activeSession&&mainTab==="report"&&(
           <ReportModule sessionId={activeSession.id} students={students}/>
-        )}
-
-        {/* STUDENTS TAB */}
-        {view==="attendance"&&activeSession&&mainTab==="students"&&(
-          <div style={{animation:"fadeUp .4s ease both"}}>
-
-            {/* Código de unión */}
-            <div style={{background:C.card,border:`1px solid ${C.accent}44`,borderRadius:16,padding:"20px 20px",marginBottom:20}}>
-              <div style={{fontSize:11,color:C.accent,fontWeight:700,letterSpacing:1,marginBottom:12}}>🔑 CÓDIGO DE UNIÓN</div>
-              <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                <div style={{
-                  fontFamily:"'Sora',monospace",fontSize:"clamp(24px,8vw,36px)",fontWeight:800,
-                  letterSpacing:"clamp(4px,2vw,8px)",color:C.text,
-                  background:C.surface,border:`2px dashed ${C.accent}66`,
-                  borderRadius:12,padding:"14px 16px",flex:1,textAlign:"center",minWidth:0
-                }}>
-                  {activeSession.join_code || "——"}
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
-                  <button className="btn" onClick={()=>{
-                    navigator.clipboard.writeText(activeSession.join_code||"");
-                    showToast("📋 Código copiado");
-                  }} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"10px 18px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
-                    📋 Copiar
-                  </button>
-                  <button className="btn" onClick={regenerateCode} style={{background:`${C.warning}18`,color:C.warning,border:`1px solid ${C.warning}44`,borderRadius:10,padding:"10px 18px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
-                    🔄 Nuevo código
-                  </button>
-                </div>
-              </div>
-              <div style={{fontSize:12,color:C.muted,marginTop:12,lineHeight:1.5}}>
-                Comparte este código con tus alumnos. Ellos se registran solos desde la app con este código y quedan unidos automáticamente.
-              </div>
-            </div>
-
-            {/* Lista de alumnos */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontWeight:600,fontSize:14,color:C.text}}>
-                Alumnos en esta sesión
-              </div>
-              <span style={{background:`${C.accent}22`,color:C.accent,borderRadius:20,padding:"2px 10px",fontSize:12,fontWeight:700}}>
-                {students.length}
-              </span>
-            </div>
-
-            {students.length===0 ? (
-              <div style={{textAlign:"center",padding:"40px 0",color:C.muted}}>
-                <div style={{fontSize:40,marginBottom:10}}>👥</div>
-                <p style={{fontSize:13}}>Aún no hay alumnos. Comparte el código para que se unan.</p>
-              </div>
-            ) : (
-              <div style={{display:"grid",gap:8}}>
-                {students.map((s,i)=>(
-                  <div key={s.id} style={{
-                    background:C.card,
-                    border:`1px solid ${s.user_id?`${C.accent}33`:C.border}`,
-                    borderRadius:12,padding:"12px 16px",
-                    display:"flex",alignItems:"center",gap:12,
-                    animation:`slideIn .3s ease both`,animationDelay:`${i*.04}s`
-                  }}>
-                    <div style={{width:36,height:36,borderRadius:9,background:`${C.accent}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:C.accent,flexShrink:0}}>
-                      {s.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:600,fontSize:13,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-                      <div style={{fontSize:11,marginTop:1,color:s.user_id?C.accent:C.muted}}>
-                        {s.user_id ? `🔗 @${s.user?.username||"vinculado"}` : "⏳ Pendiente de registro"}
-                      </div>
-                    </div>
-                    <span style={{
-                      background:s.user_id?`${C.success}18`:`${C.muted}18`,
-                      color:s.user_id?C.success:C.muted,
-                      border:`1px solid ${s.user_id?C.success:C.border}44`,
-                      borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600,flexShrink:0
-                    }}>
-                      {s.user_id?"Activo":"Sin cuenta"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         {/* STUDENT HISTORY */}

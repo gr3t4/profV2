@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { sb } from "../lib/supabase";
 import { C, STATUS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty } from "./Shared";
-
-const todayStr = today();
+import * as XLSX from "xlsx";
 
 function pctColor(p) {
   if (p === null) return C.muted;
@@ -49,7 +48,6 @@ function GroupCard({ session, isActive, onClick }) {
   const { counts, total } = session;
   const pct = total > 0 ? Math.round(((counts.present+counts.late+counts.excused)/total)*100) : null;
   const registered = counts.present + counts.late + counts.excused + counts.absent;
-  const progress = total > 0 ? Math.round((registered/total)*100) : 0;
 
   return (
     <div onClick={onClick} className="row-hover" style={{
@@ -82,17 +80,12 @@ function GroupCard({ session, isActive, onClick }) {
 }
 
 // ── Detalle de grupo ─────────────────────────────────────────────
-function GroupDetail({ session, students, attendance, onClose }) {
+function GroupDetail({ session, onClose, selectedDate }) {
   const [filter, setFilter] = useState("all");
-  const getStatus = id => attendance[id]?.status || "pending";
+  const getStatus = id => session.attendance[id]?.status || "pending";
+  const students = session.students;
 
-  const counts = {
-    present: students.filter(s=>getStatus(s.id)==="present").length,
-    late:    students.filter(s=>getStatus(s.id)==="late").length,
-    excused: students.filter(s=>getStatus(s.id)==="excused").length,
-    absent:  students.filter(s=>getStatus(s.id)==="absent").length,
-    pending: students.filter(s=>getStatus(s.id)==="pending").length,
-  };
+  const counts = session.counts;
   const pct = students.length > 0
     ? Math.round(((counts.present+counts.late+counts.excused)/students.length)*100) : 0;
 
@@ -100,7 +93,6 @@ function GroupDetail({ session, students, attendance, onClose }) {
 
   return (
     <div style={{animation:"fadeUp .3s ease both"}}>
-      {/* Header */}
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"22px 24px",marginBottom:16,position:"relative"}}>
         <button className="btn" onClick={onClose}
           style={{position:"absolute",top:14,right:14,background:`${C.border}`,color:C.muted,border:"none",borderRadius:8,padding:"4px 10px",fontSize:13}}>
@@ -111,11 +103,10 @@ function GroupDetail({ session, students, attendance, onClose }) {
           <div>
             <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:18,color:C.text}}>{session.name}</div>
             <div style={{color:C.muted,fontSize:13,marginTop:4}}>👤 {session.ownerName}</div>
-            <div style={{color:C.muted,fontSize:12,marginTop:2}}>📅 {fmtDate(todayStr)}</div>
+            <div style={{color:C.muted,fontSize:12,marginTop:2}}>📅 {fmtDate(selectedDate)}</div>
           </div>
         </div>
 
-        {/* Stats grid */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:12}}>
           {[
             {label:"Presentes",  v:counts.present, color:C.success, icon:"✅"},
@@ -134,7 +125,6 @@ function GroupDetail({ session, students, attendance, onClose }) {
         <SegBar counts={counts} total={students.length} height={8}/>
       </div>
 
-      {/* Filtros */}
       <div className="tabs-scroll" style={{marginBottom:12}}>
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           {[["all","Todos",C.accent],["present","Presentes",C.success],["late","Retardos",C.late],
@@ -147,13 +137,12 @@ function GroupDetail({ session, students, attendance, onClose }) {
         </div>
       </div>
 
-      {/* Lista */}
       {filtered.length===0 ? <Empty icon="👥" msg="Sin alumnos en este filtro"/> : (
         <div style={{display:"grid",gap:6,maxHeight:"calc(100vh - 420px)",overflowY:"auto",paddingRight:4}}>
           {filtered.map((s,i)=>{
             const st  = getStatus(s.id);
             const cfg = STATUS[st];
-            const reason = attendance[s.id]?.reason||"";
+            const reason = session.attendance[s.id]?.reason||"";
             return (
               <div key={s.id} style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:12,animation:`slideIn .2s ease both`,animationDelay:`${i*.015}s`}}>
                 <div style={{width:32,height:32,borderRadius:8,background:`${cfg.color}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:cfg.color,flexShrink:0}}>
@@ -175,66 +164,129 @@ function GroupDetail({ session, students, attendance, onClose }) {
   );
 }
 
+// ── Informe de faltas — plano, cruzando todos los grupos ──────────
+function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, setStatusFilter }) {
+  const filtered = rows.filter(r => {
+    const matchSearch = !search ||
+      r.student.name.toLowerCase().includes(search.toLowerCase()) ||
+      r.sessionName.toLowerCase().includes(search.toLowerCase()) ||
+      r.ownerName.toLowerCase().includes(search.toLowerCase());
+    const matchStatus = statusFilter==="all" || r.status===statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  function exportXlsx() {
+    const header = ["Alumno","Grupo","Docente","Estado","Motivo"];
+    const dataRows = filtered.map(r => [r.student.name, r.sessionName, r.ownerName, STATUS[r.status]?.label||r.status, r.reason||""]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header,...dataRows]), "Faltas");
+    XLSX.writeFile(wb, `faltas_${selectedDate}.xlsx`);
+  }
+
+  return (
+    <div style={{animation:"fadeUp .3s ease both"}}>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+        <span>🔍</span>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar alumno, grupo o docente..."
+          style={{flex:1,background:"transparent",border:"none",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+        {search&&<button className="btn" onClick={()=>setSearch("")} style={{background:"none",color:C.muted,border:"none",fontSize:15,padding:"0 2px"}}>×</button>}
+        <button className="btn" onClick={exportXlsx}
+          style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit",fontWeight:600,flexShrink:0}}>
+          📥 Excel
+        </button>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {[["all","Todos",C.accent],["absent","Ausentes",C.danger],["late","Retardos",C.late],["excused","Justificadas",C.excused]].map(([k,l,color])=>(
+          <button key={k} className="btn chip" onClick={()=>setStatusFilter(k)}
+            style={{background:statusFilter===k?`${color}22`:"transparent",color:statusFilter===k?color:C.muted,borderColor:statusFilter===k?color:C.border}}>
+            {l} {k!=="all"&&`(${rows.filter(r=>r.status===k).length})`}
+          </button>
+        ))}
+      </div>
+      {filtered.length===0 ? (
+        <Empty icon="🎉" msg={`Sin faltas, retardos ni justificantes el ${fmtDate(selectedDate)}.`}/>
+      ) : (
+        <div style={{display:"grid",gap:6}}>
+          {filtered.map((r,i) => {
+            const cfg = STATUS[r.status];
+            return (
+              <div key={r.student.id+r.sessionId} className="row-hover" style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"11px 16px",display:"flex",alignItems:"center",gap:14,animation:`slideIn .2s ease both`,animationDelay:`${Math.min(i,20)*.015}s`,flexWrap:"wrap"}}>
+                <div style={{width:34,height:34,borderRadius:9,background:`${cfg.color}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:cfg.color,flexShrink:0}}>
+                  {r.student.name.charAt(0).toUpperCase()}
+                </div>
+                <div style={{flex:1,minWidth:140}}>
+                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{r.student.name}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:1}}>📚 {r.sessionName} · 👤 {r.ownerName}</div>
+                  {r.status==="excused"&&r.reason&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📝 {r.reason}</div>}
+                </div>
+                <span style={{background:`${cfg.color}18`,color:cfg.color,border:`1px solid ${cfg.color}44`,borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>
+                  {cfg.icon} {cfg.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ViewerApp ────────────────────────────────────────────────────
 export default function ViewerApp({ user, onLogout }) {
+  const [tab, setTab]                     = useState("grupos"); // grupos | ausencias
+  const [selectedDate, setSelectedDate]   = useState(today());
   const [sessions, setSessions]           = useState([]);
-  const [selected, setSelected]           = useState(null);
-  const [students, setStudents]           = useState([]);
-  const [attendance, setAttendance]       = useState({});
+  const [selectedId, setSelectedId]       = useState(null);
   const [loading, setLoading]             = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
   const [search, setSearch]               = useState("");
+  const [reportSearch, setReportSearch]   = useState("");
+  const [statusFilter, setStatusFilter]   = useState("all");
   const [lastUpdate, setLastUpdate]       = useState(null);
   const [filterRisk, setFilterRisk]       = useState("all"); // all | ok | warning | danger
 
-  useEffect(() => {
-    loadAll();
-    const iv = setInterval(loadAll, 60000);
-    return () => clearInterval(iv);
-  }, []);
+  async function loadAll(date) {
+    setLoading(true);
+    const [{ data: sessData }, { data: studData }, { data: attData }] = await Promise.all([
+      sb.from("sessions").select("id,name,date,owner_id,owner:profiles(id,name)").order("name"),
+      sb.from("students").select("id,name,session_id"),
+      sb.from("attendance").select("session_id,student_id,status,reason").eq("date", date),
+    ]);
 
-  async function loadAll() {
-    const { data: sessData } = await sb.from("sessions")
-      .select("id,name,date,owner_id,owner:users(id,name)")
-      .order("name");
-    if (!sessData) { setLoading(false); return; }
+    const studentsBySession = {};
+    (studData||[]).forEach(s => {
+      (studentsBySession[s.session_id] ??= []).push(s);
+    });
+    const attByStudent = {};
+    (attData||[]).forEach(a => { attByStudent[a.student_id] = a; });
 
-    const enriched = await Promise.all(sessData.map(async s => {
-      const [{ data: studs }, { data: att }] = await Promise.all([
-        sb.from("students").select("id").eq("session_id", s.id),
-        sb.from("attendance").select("student_id,status").eq("session_id", s.id).eq("date", todayStr),
-      ]);
-      const total = studs?.length || 0;
+    const enriched = (sessData||[]).map(s => {
+      const studs = studentsBySession[s.id] || [];
       const counts = { present:0, late:0, excused:0, absent:0, pending:0 };
-      (att||[]).forEach(a => { if (counts[a.status]!==undefined) counts[a.status]++; });
-      counts.pending = total - (counts.present+counts.late+counts.excused+counts.absent);
+      const attendance = {};
+      studs.forEach(st => {
+        const rec = attByStudent[st.id];
+        const status = rec?.status || "pending";
+        counts[status]++;
+        attendance[st.id] = { status, reason: rec?.reason || "" };
+      });
+      const total = studs.length;
       const pct = total > 0 ? Math.round(((counts.present+counts.late+counts.excused)/total)*100) : null;
       const risk = pct===null?"pending":pct>=80?"ok":pct>=60?"warning":"danger";
-      return { ...s, ownerName:s.owner?.name||"—", total, counts, pct, risk };
-    }));
+      return { ...s, ownerName:s.owner?.name||"—", total, counts, pct, risk, students: studs, attendance };
+    });
 
     setSessions(enriched);
     setLastUpdate(new Date());
     setLoading(false);
-    if (selected) {
-      const upd = enriched.find(s=>s.id===selected.id);
-      if (upd) { setSelected(upd); loadDetail(upd, false); }
-    }
   }
 
-  async function loadDetail(session, showLoader=true) {
-    if (showLoader) setLoadingDetail(true);
-    setSelected(session);
-    const [{ data: studs }, { data: att }] = await Promise.all([
-      sb.from("students").select("*").eq("session_id", session.id).order("name"),
-      sb.from("attendance").select("student_id,status,reason").eq("session_id", session.id).eq("date", todayStr),
-    ]);
-    const attMap = {};
-    (att||[]).forEach(a => { attMap[a.student_id] = { status:a.status, reason:a.reason||"" }; });
-    setStudents(studs||[]);
-    setAttendance(attMap);
-    setLoadingDetail(false);
-  }
+  useEffect(() => {
+    (async () => { await loadAll(selectedDate); })();
+    const iv = setInterval(() => { loadAll(selectedDate); }, 60000);
+    return () => clearInterval(iv);
+  }, [selectedDate]);
+
+  const selected = sessions.find(s => s.id === selectedId) || null;
 
   // Totales globales
   const G = sessions.reduce((a,s)=>({
@@ -258,25 +310,48 @@ export default function ViewerApp({ user, onLogout }) {
     return matchSearch && matchRisk;
   });
 
+  // Informe plano de faltas/retardos/justificantes, cruzando todos los grupos
+  const absenceRows = useMemo(() => {
+    const rows = [];
+    sessions.forEach(s => {
+      s.students.forEach(st => {
+        const rec = s.attendance[st.id];
+        if (rec && (rec.status==="absent"||rec.status==="late"||rec.status==="excused")) {
+          rows.push({ student: st, sessionId: s.id, sessionName: s.name, ownerName: s.ownerName, status: rec.status, reason: rec.reason });
+        }
+      });
+    });
+    return rows.sort((a,b) => a.student.name.localeCompare(b.student.name));
+  }, [sessions]);
+
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Inter',sans-serif",color:C.text}}>
       <GlobalStyles/>
       <Glow top="-15%" right="-5%" color="27,58,138" size="40vw"/>
       <Glow bottom="-10%" left="-5%" color="200,160,32" size="35vw"/>
 
-      {/* Header */}
       <div style={{height:3,background:"linear-gradient(90deg,#b71c1c 33%,#1b3a8a 66%,#c8a020 100%)"}}/>
       <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 20px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
-        <div style={{maxWidth:1400,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:58}}>
+        <div style={{maxWidth:1400,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:58,flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <img src="/dgti-logo.png" alt="CBTIS 179" style={{height:26,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:17,color:C.text}}>AppProf</span>
-            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,letterSpacing:.5}}>VISOR</span>
+            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,letterSpacing:.5}}>PREFECTURA</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <input type="date" value={selectedDate} onChange={e=>{ setSelectedDate(e.target.value); setSelectedId(null); }}
+              style={{background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,borderRadius:8,padding:"6px 10px",fontSize:12,fontFamily:"inherit"}}/>
+            {selectedDate!==today() && (
+              <button className="btn" onClick={()=>setSelectedDate(today())}
+                style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 10px",fontSize:11,fontFamily:"inherit",fontWeight:600}}>
+                Hoy
+              </button>
+            )}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
-            {lastUpdate&&<span style={{fontSize:11,color:C.muted}}>🔄 {lastUpdate.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</span>}
+            {lastUpdate&&<span className="hide-mobile" style={{fontSize:11,color:C.muted}}>🔄 {lastUpdate.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</span>}
             <span className="hide-mobile" style={{fontSize:13,color:C.muted}}>👤 {user.name}</span>
-            <button className="btn" onClick={loadAll}
+            <button className="btn" onClick={()=>loadAll(selectedDate)}
               style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"5px 12px",fontSize:12,fontFamily:"inherit",fontWeight:600}}>
               🔄
             </button>
@@ -288,22 +363,32 @@ export default function ViewerApp({ user, onLogout }) {
         </div>
       </header>
 
+      <div className="tabs-scroll" style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 20px"}}>
+        <div style={{maxWidth:1400,margin:"0 auto",display:"flex",gap:4,minWidth:"max-content"}}>
+          {[["grupos","📚 Grupos"],["ausencias",`🚨 Faltas y retardos${absenceRows.length?` (${absenceRows.length})`:""}`]].map(([id,label])=>(
+            <button key={id} className="btn" onClick={()=>setTab(id)}
+              style={{background:"none",color:tab===id?C.accent:C.muted,borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",padding:"12px 18px",fontSize:14,fontFamily:"inherit",fontWeight:tab===id?600:400,transition:"all .2s"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <main style={{maxWidth:1400,margin:"0 auto",padding:"20px 16px",position:"relative",zIndex:1}}>
 
-        {/* Título */}
         <div style={{marginBottom:16}}>
-          <h2 style={{fontFamily:"'Sora',sans-serif",fontSize:20,fontWeight:800}}>Monitor de asistencia</h2>
-          <p style={{color:C.muted,fontSize:13,marginTop:3}}>📅 {fmtDate(todayStr)} · {sessions.length} grupos activos</p>
+          <h2 style={{fontFamily:"'Sora',sans-serif",fontSize:20,fontWeight:800}}>
+            {tab==="grupos" ? "Monitor de asistencia" : "Informe de faltas y retardos"}
+          </h2>
+          <p style={{color:C.muted,fontSize:13,marginTop:3}}>📅 {fmtDate(selectedDate)} · {sessions.length} grupos</p>
         </div>
 
-        {/* Dashboard global */}
         {!loading && (
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"20px 24px",marginBottom:20}}>
             <div style={{display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
-              {/* Anillo grande */}
               <Ring pct={globalPct} size={100} stroke={9}/>
               <div style={{flex:1,minWidth:200}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:10}}>RESUMEN INSTITUCIONAL — HOY</div>
+                <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:10}}>RESUMEN INSTITUCIONAL</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:10}}>
                   {[
                     {label:"Presentes",  v:G.present, color:C.success, icon:"✅"},
@@ -321,7 +406,6 @@ export default function ViewerApp({ user, onLogout }) {
                 </div>
                 <SegBar counts={G} total={G.total} height={10}/>
               </div>
-              {/* Semáforo de grupos */}
               <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:140}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:1}}>GRUPOS POR ESTADO</div>
                 {[
@@ -342,13 +426,13 @@ export default function ViewerApp({ user, onLogout }) {
         )}
 
         {loading ? (
-          <div style={{textAlign:"center",padding:"60px 0",color:C.muted,fontSize:14}}>Cargando grupos...</div>
+          <div style={{textAlign:"center",padding:"60px 0",color:C.muted,fontSize:14}}>Cargando...</div>
+        ) : tab==="ausencias" ? (
+          <AbsenceReport rows={absenceRows} selectedDate={selectedDate} search={reportSearch} setSearch={setReportSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter}/>
         ) : (
           <div style={{display:"grid",gridTemplateColumns:selected?"minmax(280px,360px) 1fr":"1fr",gap:20,alignItems:"start"}}>
 
-            {/* Panel izquierdo — lista */}
             <div>
-              {/* Buscador + filtro riesgo */}
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
                 <span>🔍</span>
                 <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar grupo o docente..."
@@ -367,23 +451,15 @@ export default function ViewerApp({ user, onLogout }) {
               {displayed.length===0 ? <Empty icon="📚" msg="Sin grupos"/> : (
                 <div style={{display:"grid",gap:8,maxHeight:"calc(100vh - 340px)",overflowY:"auto",paddingRight:4}}>
                   {displayed.map(s=>(
-                    <GroupCard key={s.id} session={s} isActive={selected?.id===s.id} onClick={()=>loadDetail(s)}/>
+                    <GroupCard key={s.id} session={s} isActive={selectedId===s.id} onClick={()=>setSelectedId(s.id)}/>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Panel derecho — detalle */}
             {selected && (
               <div style={{position:"sticky",top:76}}>
-                {loadingDetail ? (
-                  <div style={{textAlign:"center",padding:"60px 0",color:C.muted}}>Cargando...</div>
-                ) : (
-                  <GroupDetail
-                    session={selected} students={students} attendance={attendance}
-                    onClose={()=>setSelected(null)}
-                  />
-                )}
+                <GroupDetail session={selected} selectedDate={selectedDate} onClose={()=>setSelectedId(null)}/>
               </div>
             )}
           </div>

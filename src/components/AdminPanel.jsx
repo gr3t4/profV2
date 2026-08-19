@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { sb } from "../lib/supabase";
+import { callAdminUsers } from "../lib/adminUsers";
 import { C, fmtDate, fmtDT } from "../lib/constants";
 import { GlobalStyles, Glow, Toast, Empty, Pill, Avatar, StatusBadge, RoleBadge } from "./Shared";
 
@@ -11,24 +12,18 @@ export default function AdminPanel({ user, onLogout }) {
   const [selectedUser, setSelectedUser]         = useState(null);
   const [userSessions, setUserSessions]         = useState([]);
   const [newU, setNewU]                         = useState({ username:"", password:"", name:"", role:"teacher" });
-  const [newPass, setNewPass]                   = useState({ old:"", new1:"", new2:"" });
+  const [newPass, setNewPass]                   = useState({ new1:"", new2:"" });
   const [passErr, setPassErr]                   = useState("");
   const [loading, setLoading]                   = useState(true);
   const [editPassTarget, setEditPassTarget]     = useState(null);
   const [editPassVal, setEditPassVal]           = useState({ new1:"", new2:"" });
   const [editPassErr, setEditPassErr]           = useState("");
-  // Vinculación alumno ↔ usuario
-  const [allStudents, setAllStudents]           = useState([]);
-  const [linkTarget, setLinkTarget]             = useState(null); // { userId, userName }
-  const [linkStudentId, setLinkStudentId]       = useState("");
-
-  useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
     setLoading(true);
-    const { data:ud } = await sb.from("users").select("*").order("created_at", { ascending:false });
+    const { data:ud } = await sb.from("profiles").select("*").order("created_at", { ascending:false });
     setUsers(ud || []);
-    const { data:sd } = await sb.from("sessions").select(`id,name,date,created_at,owner:users(id,username,name),students(count),attendance(date,status)`).order("created_at", { ascending:false });
+    const { data:sd } = await sb.from("sessions").select(`id,name,date,created_at,owner:profiles(id,username,name),students(count),attendance(date,status)`).order("created_at", { ascending:false });
     setAllSessions((sd||[]).map(s => ({
       ...s,
       studentCount: s.students?.[0]?.count || 0,
@@ -36,10 +31,10 @@ export default function AdminPanel({ user, onLogout }) {
       lateCount: (s.attendance||[]).filter(a=>a.status==="late").length,
       excusedCount: (s.attendance||[]).filter(a=>a.status==="excused").length,
     })));
-    const { data:studs } = await sb.from("students").select("id, name, user_id, session:sessions(name)").order("name");
-    setAllStudents(studs || []);
     setLoading(false);
   }
+
+  useEffect(() => { (async () => { await loadAll(); })(); }, []);
 
   async function viewUserSessions(userId, userName) {
     const { data } = await sb.from("sessions").select(`id,name,date,created_at,students(count),attendance(date,status)`).eq("owner_id", userId).order("created_at", { ascending:false });
@@ -49,14 +44,16 @@ export default function AdminPanel({ user, onLogout }) {
   }
 
   async function toggleUserActive(uid, cur) {
-    await sb.from("users").update({ active:!cur }).eq("id", uid);
+    const res = await callAdminUsers("setActive", { userId: uid, active: !cur });
+    if (!res.ok) { showToast("❌ " + res.error); return; }
     setUsers(p => p.map(u => u.id===uid ? {...u, active:!cur} : u));
     showToast(!cur ? "✅ Activado" : "🚫 Desactivado");
   }
 
   async function deleteUser(uid, uname) {
     if (!window.confirm(`¿Eliminar "${uname}"?`)) return;
-    await sb.from("users").delete().eq("id", uid);
+    const res = await callAdminUsers("delete", { userId: uid });
+    if (!res.ok) { showToast("❌ " + res.error); return; }
     setUsers(p => p.filter(u => u.id !== uid));
     await loadAll();
     showToast("🗑️ Eliminado");
@@ -64,30 +61,20 @@ export default function AdminPanel({ user, onLogout }) {
 
   async function createUser() {
     if (!newU.username.trim()||!newU.password.trim()||!newU.name.trim()) { showToast("⚠️ Completa los campos"); return; }
-    const { data:ex } = await sb.from("users").select("id").eq("username", newU.username).maybeSingle();
-    if (ex) { showToast("⚠️ Ya existe"); return; }
-    const { data, error } = await sb.from("users").insert({ ...newU, created_by_admin:true }).select().single();
-    if (error) { showToast("❌ " + error.message); return; }
-    setUsers(p => [data,...p]);
+    const res = await callAdminUsers("create", { username: newU.username.trim(), password: newU.password, name: newU.name.trim(), role: newU.role });
+    if (!res.ok) { showToast("❌ " + res.error); return; }
+    setUsers(p => [res.data,...p]);
     setNewU({ username:"", password:"", name:"", role:"teacher" });
     showToast("✅ Creado");
   }
 
-  async function unlinkStudent(studentId) {
-    const { error } = await sb.from("students").update({ user_id: null }).eq("id", studentId);
-    if (error) { showToast("❌ " + error.message); return; }
-    setAllStudents(p => p.map(s => s.id === studentId ? {...s, user_id: null} : s));
-    showToast("🔓 Desvinculado");
-  }
-
   async function changeAdminPass() {
     setPassErr("");
-    const { data } = await sb.from("users").select("password").eq("id", user.id).single();
-    if (newPass.old !== data.password) { setPassErr("Contraseña incorrecta"); return; }
     if (newPass.new1.length < 4) { setPassErr("Mínimo 4 caracteres"); return; }
     if (newPass.new1 !== newPass.new2) { setPassErr("No coinciden"); return; }
-    await sb.from("users").update({ password:newPass.new1 }).eq("id", user.id);
-    setNewPass({ old:"", new1:"", new2:"" });
+    const { error } = await sb.auth.updateUser({ password: newPass.new1 });
+    if (error) { setPassErr("Error: " + error.message); return; }
+    setNewPass({ new1:"", new2:"" });
     showToast("🔒 Actualizada");
   }
 
@@ -95,8 +82,8 @@ export default function AdminPanel({ user, onLogout }) {
     setEditPassErr("");
     if (editPassVal.new1.length < 4) { setEditPassErr("Mínimo 4 caracteres"); return; }
     if (editPassVal.new1 !== editPassVal.new2) { setEditPassErr("Las contraseñas no coinciden"); return; }
-    const { error } = await sb.from("users").update({ password:editPassVal.new1 }).eq("id", editPassTarget.id);
-    if (error) { setEditPassErr("Error: " + error.message); return; }
+    const res = await callAdminUsers("resetPassword", { userId: editPassTarget.id, newPassword: editPassVal.new1 });
+    if (!res.ok) { setEditPassErr("Error: " + res.error); return; }
     setEditPassTarget(null);
     setEditPassVal({ new1:"", new2:"" });
     showToast("🔒 Contraseña de " + editPassTarget.name + " actualizada");
@@ -110,7 +97,7 @@ export default function AdminPanel({ user, onLogout }) {
   const totalStu     = allSessions.reduce((a,s)=>a+(s.studentCount||0),0);
   const totalLate    = allSessions.reduce((a,s)=>a+(s.lateCount||0),0);
   const totalExcused = allSessions.reduce((a,s)=>a+(s.excusedCount||0),0);
-  const TABS = [{id:"overview",label:"📊 Resumen"},{id:"users",label:"👥 Usuarios"},{id:"students",label:"🎓 Alumnos"},{id:"sessions",label:"📚 Sesiones"},{id:"settings",label:"⚙️ Ajustes"}];
+  const TABS = [{id:"overview",label:"📊 Resumen"},{id:"users",label:"👥 Usuarios"},{id:"sessions",label:"📚 Sesiones"},{id:"settings",label:"⚙️ Ajustes"}];
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Source Sans 3',sans-serif",color:C.text,position:"relative"}}>
@@ -119,7 +106,6 @@ export default function AdminPanel({ user, onLogout }) {
       <Glow bottom="-10%" left="-5%" color="139,92,246" size="35vw"/>
       {toast && <Toast msg={toast}/>}
 
-      {/* Change user password modal */}
       {editPassTarget && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"fadeUp .2s ease"}}>
           <div style={{background:C.card,border:`1px solid ${C.accent}55`,borderRadius:20,padding:"28px",width:"100%",maxWidth:420,boxShadow:"0 30px 80px rgba(0,0,0,0.6)"}}>
@@ -143,64 +129,6 @@ export default function AdminPanel({ user, onLogout }) {
               <div style={{display:"flex",gap:10,marginTop:4}}>
                 <button className="btn" onClick={changeUserPass} style={{flex:1,background:`linear-gradient(135deg,${C.accent},${C.purple})`,color:"#fff",borderRadius:10,padding:"12px 0",fontSize:14,fontWeight:600,fontFamily:"inherit"}}>Guardar</button>
                 <button className="btn" onClick={()=>{setEditPassTarget(null);setEditPassVal({new1:"",new2:""});setEditPassErr("");}} style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",fontSize:14,fontFamily:"inherit"}}>Cancelar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal vinculación alumno */}
-      {linkTarget && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"fadeUp .2s ease"}}>
-          <div style={{background:C.card,border:`1px solid ${C.teal}55`,borderRadius:20,padding:"28px",width:"100%",maxWidth:440,boxShadow:"0 30px 80px rgba(0,0,0,0.6)"}}>
-            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:22}}>
-              <div style={{width:46,height:46,borderRadius:14,background:`${C.teal}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🔗</div>
-              <div>
-                <div style={{fontWeight:700,fontSize:16,color:C.text}}>Vincular alumno con usuario</div>
-                <div style={{color:C.muted,fontSize:13,marginTop:2}}>
-                  {linkTarget.studentName
-                    ? `Alumno: ${linkTarget.studentName}`
-                    : `Usuario: ${linkTarget.userName}`}
-                </div>
-              </div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              {/* Si viene desde la lista de alumnos, elegir usuario */}
-              {linkTarget.studentName && (
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Usuario (rol Alumno)</div>
-                  <select className="inp" value={linkTarget.userId} onChange={e=>setLinkTarget(p=>({...p,userId:e.target.value}))} style={{cursor:"pointer"}}>
-                    <option value="">— Elige un usuario —</option>
-                    {users.filter(u=>u.role==="student"&&!allStudents.some(st=>st.user_id===u.id&&st.id!==linkStudentId)).map(u=>(
-                      <option key={u.id} value={u.id}>@{u.username} — {u.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {/* Si viene desde la lista de usuarios, elegir alumno */}
-              {!linkTarget.studentName && (
-                <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Alumno</div>
-                  <select className="inp" value={linkStudentId} onChange={e=>setLinkStudentId(e.target.value)} style={{cursor:"pointer"}}>
-                    <option value="">— Elige un alumno —</option>
-                    {allStudents.filter(s=>!s.user_id).map(s=>(
-                      <option key={s.id} value={s.id}>{s.name} ({s.session?.name})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div style={{display:"flex",gap:10,marginTop:4}}>
-                <button className="btn" onClick={async()=>{
-                  const uid = linkTarget.studentName ? linkTarget.userId : null;
-                  const sid = linkTarget.studentName ? linkStudentId : linkStudentId;
-                  const finalUid = linkTarget.studentName ? linkTarget.userId : linkTarget.userId;
-                  if (!finalUid||!sid) { showToast("⚠️ Selecciona ambos"); return; }
-                  const { error } = await sb.from("students").update({ user_id: finalUid }).eq("id", sid);
-                  if (error) { showToast("❌ "+error.message); return; }
-                  setAllStudents(p=>p.map(s=>s.id===sid?{...s,user_id:finalUid}:s));
-                  setLinkTarget(null); setLinkStudentId(""); showToast("🔗 Vinculado");
-                }} style={{flex:1,background:`linear-gradient(135deg,${C.teal},${C.accent})`,color:"#fff",borderRadius:10,padding:"12px 0",fontSize:14,fontWeight:600,fontFamily:"inherit"}}>Vincular</button>
-                <button className="btn" onClick={()=>{setLinkTarget(null);setLinkStudentId("");}} style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 16px",fontSize:14,fontFamily:"inherit"}}>Cancelar</button>
               </div>
             </div>
           </div>
@@ -265,7 +193,7 @@ export default function AdminPanel({ user, onLogout }) {
                   {allSessions.slice(0,6).map((s,i)=>(
                     <div key={s.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 14px",background:C.surface,borderRadius:10,animation:`slideIn .3s ease both`,animationDelay:`${i*.05}s`}}>
                       <div style={{width:38,height:38,borderRadius:10,background:`linear-gradient(135deg,${C.purple}22,${C.accent}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📚</div>
-                      <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13}}>{s.name}</div><div style={{color:C.muted,fontSize:11,marginTop:2}}>por <span style={{color:C.accent}}>{s.owner?.name}</span> · {fmtDate(s.date)}</div></div>
+                      <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13}}>{s.name}</div><div style={{color:C.muted,fontSize:11,marginTop:2}}>por <span style={{color:C.accent}}>{s.owner?.name ?? "(sin dueño)"}</span> · {fmtDate(s.date)}</div></div>
                       <div style={{display:"flex",gap:8,fontSize:12}}>
                         <span style={{color:C.muted}}>👥 {s.studentCount}</span>
                         <span style={{color:C.muted}}>📅 {s.datesCount}</span>
@@ -292,7 +220,7 @@ export default function AdminPanel({ user, onLogout }) {
                 <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Nombre</div><input className="inp" placeholder="Nombre completo" value={newU.name} onChange={e=>setNewU({...newU,name:e.target.value})}/></div>
                 <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Usuario</div><input className="inp" placeholder="username" value={newU.username} onChange={e=>setNewU({...newU,username:e.target.value})}/></div>
                 <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Contraseña</div><input className="inp" type="password" placeholder="••••••" value={newU.password} onChange={e=>setNewU({...newU,password:e.target.value})}/></div>
-                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Rol</div><select className="inp" value={newU.role} onChange={e=>setNewU({...newU,role:e.target.value})} style={{cursor:"pointer"}}><option value="teacher">Docente</option><option value="viewer">Solo lectura</option><option value="student">Alumno</option></select></div>
+                <div><div style={{fontSize:11,color:C.muted,marginBottom:5}}>Rol</div><select className="inp" value={newU.role} onChange={e=>setNewU({...newU,role:e.target.value})} style={{cursor:"pointer"}}><option value="teacher">Docente</option><option value="viewer">Solo lectura</option></select></div>
                 <button className="btn" onClick={createUser} style={{background:`linear-gradient(135deg,${C.success},#059669)`,color:"#fff",borderRadius:10,padding:"10px 18px",fontSize:13,fontWeight:600,fontFamily:"inherit",whiteSpace:"nowrap"}}>Crear</button>
               </div>
             </div>
@@ -307,13 +235,7 @@ export default function AdminPanel({ user, onLogout }) {
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                       <RoleBadge role={u.role}/><StatusBadge active={u.active!==false}/>
-                      {u.role!=="student"&&<button className="btn" onClick={()=>viewUserSessions(u.id,u.name)} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>📚</button>}
-                      {u.role==="student"&&(()=>{
-                        const linked = allStudents.find(s=>s.user_id===u.id);
-                        return linked
-                          ? <span style={{background:`${C.teal}18`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600}}>🔗 {linked.name}</span>
-                          : <button className="btn" onClick={()=>{setLinkTarget({userId:u.id,userName:u.username});setLinkStudentId("");}} style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>🔗 Vincular</button>;
-                      })()}
+                      <button className="btn" onClick={()=>viewUserSessions(u.id,u.name)} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>📚</button>
                       <button className="btn" onClick={()=>{setEditPassTarget({id:u.id,name:u.name,username:u.username});setEditPassVal({new1:"",new2:""});setEditPassErr("");}} style={{background:`${C.purple}22`,color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}} title="Cambiar contraseña">🔑</button>
                       <button className="btn" onClick={()=>toggleUserActive(u.id,u.active!==false)} style={{background:u.active===false?`${C.success}22`:`${C.warning}22`,color:u.active===false?C.success:C.warning,border:`1px solid ${u.active===false?C.success:C.warning}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>{u.active===false?"Activar":"Desactivar"}</button>
                       <button className="btn" onClick={()=>deleteUser(u.id,u.username)} style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:`1px solid rgba(239,68,68,0.2)`,borderRadius:8,padding:"6px 10px",fontSize:13}}>🗑️</button>
@@ -345,55 +267,6 @@ export default function AdminPanel({ user, onLogout }) {
           </div>
         )}
 
-        {tab==="students"&&(
-          <div style={{animation:"fadeUp .4s ease both"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-              <h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:22,fontWeight:700}}>Alumnos y Accesos</h2>
-              <span style={{color:C.muted,fontSize:13}}>{allStudents.length} alumnos</span>
-            </div>
-            <div style={{background:`${C.teal}11`,border:`1px solid ${C.teal}33`,borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:C.muted}}>
-              💡 Vincula cada alumno con un usuario de rol <strong style={{color:C.teal}}>Alumno</strong> para que pueda iniciar sesión y ver sus tareas, asistencia y calificaciones.
-            </div>
-            {allStudents.length===0?<Empty icon="🎓" msg="Sin alumnos registrados"/>:(
-              <div style={{display:"grid",gap:10}}>
-                {allStudents.map((s,i)=>{
-                  const linkedUser = users.find(u=>u.id===s.user_id);
-                  return (
-                    <div key={s.id} className="row-hover" style={{background:C.card,border:`1px solid ${s.user_id?`${C.teal}44`:C.border}`,borderRadius:14,padding:"14px 18px",display:"flex",alignItems:"center",gap:14,animation:`slideIn .3s ease both`,animationDelay:`${i*.04}s`}}>
-                      <div style={{width:38,height:38,borderRadius:10,background:`${C.teal}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🎓</div>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:600,fontSize:14,color:C.text}}>{s.name}</div>
-                        <div style={{fontSize:11,color:C.muted,marginTop:2}}>📚 {s.session?.name}</div>
-                      </div>
-                      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                        {linkedUser ? (
-                          <>
-                            <span style={{background:`${C.teal}18`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600}}>
-                              🔗 @{linkedUser.username}
-                            </span>
-                            <button className="btn" onClick={()=>unlinkStudent(s.id)} style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:`1px solid rgba(239,68,68,0.2)`,borderRadius:8,padding:"6px 10px",fontSize:12,fontFamily:"inherit"}}>Desvincular</button>
-                          </>
-                        ) : (
-                          <button className="btn"
-                            onClick={()=>{
-                              // Buscar usuarios con rol student sin alumno vinculado
-                              const studentUsers = users.filter(u=>u.role==="student"&&!allStudents.some(st=>st.user_id===u.id));
-                              setLinkTarget({userId: studentUsers[0]?.id||"", userName: studentUsers[0]?.username||"(elige abajo)", studentName: s.name});
-                              setLinkStudentId(s.id);
-                            }}
-                            style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>
-                            🔗 Vincular usuario
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
         {tab==="sessions"&&(
           <div style={{animation:"fadeUp .4s ease both"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
@@ -405,7 +278,7 @@ export default function AdminPanel({ user, onLogout }) {
                 {allSessions.map((s,i)=>(
                   <div key={s.id} className="row-hover" style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:16,animation:`slideIn .3s ease both`,animationDelay:`${i*.04}s`}}>
                     <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${C.teal}22,${C.purple}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📚</div>
-                    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14}}>{s.name}</div><div style={{color:C.muted,fontSize:12,marginTop:3}}>👤 <span style={{color:C.accent}}>{s.owner?.name}</span> · {fmtDate(s.date)}</div></div>
+                    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14}}>{s.name}</div><div style={{color:C.muted,fontSize:12,marginTop:3}}>👤 <span style={{color:C.accent}}>{s.owner?.name ?? "(sin dueño)"}</span> · {fmtDate(s.date)}</div></div>
                     <div style={{display:"flex",gap:8,fontSize:12}}>
                       <Pill color={C.teal} label={`👥 ${s.studentCount}`}/>
                       <Pill color={C.purple} label={`📅 ${s.datesCount}`}/>
@@ -425,7 +298,7 @@ export default function AdminPanel({ user, onLogout }) {
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,padding:"24px"}}>
               <div style={{fontSize:12,fontWeight:700,color:C.gold,letterSpacing:1,marginBottom:16}}>🔒 CAMBIAR CONTRASEÑA</div>
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {[["old","Actual"],["new1","Nueva"],["new2","Confirmar"]].map(([k,l])=>(
+                {[["new1","Nueva"],["new2","Confirmar"]].map(([k,l])=>(
                   <div key={k}><div style={{fontSize:11,color:C.muted,marginBottom:5}}>{l}</div><input className="inp" type="password" placeholder="••••••" value={newPass[k]} onChange={e=>setNewPass({...newPass,[k]:e.target.value})}/></div>
                 ))}
                 {passErr&&<div style={{color:C.danger,fontSize:12}}>{passErr}</div>}

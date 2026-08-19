@@ -8,27 +8,31 @@ export default function InstallBanner() {
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
-    // Ya instalada como PWA
-    if (window.matchMedia("(display-mode: standalone)").matches) {
-      setInstalled(true); return;
-    }
-    // iOS detection
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
-    setIsIOS(ios);
-    if (ios) {
-      const dismissed = sessionStorage.getItem("pwa-ios-dismissed");
-      if (!dismissed) setShow(true);
-      return;
-    }
-    // Android / Chrome: capturar evento beforeinstallprompt
-    const handler = (e) => {
-      e.preventDefault();
-      setPrompt(e);
-      const dismissed = sessionStorage.getItem("pwa-dismissed");
-      if (!dismissed) setShow(true);
-    };
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    let cleanup = () => {};
+    (() => {
+      // Ya instalada como PWA
+      if (window.matchMedia("(display-mode: standalone)").matches) {
+        setInstalled(true); return;
+      }
+      // iOS detection
+      const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+      setIsIOS(ios);
+      if (ios) {
+        const dismissed = sessionStorage.getItem("pwa-ios-dismissed");
+        if (!dismissed) setShow(true);
+        return;
+      }
+      // Android / Chrome: capturar evento beforeinstallprompt
+      const handler = (e) => {
+        e.preventDefault();
+        setPrompt(e);
+        const dismissed = sessionStorage.getItem("pwa-dismissed");
+        if (!dismissed) setShow(true);
+      };
+      window.addEventListener("beforeinstallprompt", handler);
+      cleanup = () => window.removeEventListener("beforeinstallprompt", handler);
+    })();
+    return () => cleanup();
   }, []);
 
   function dismiss() {
