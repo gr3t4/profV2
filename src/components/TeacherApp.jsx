@@ -465,7 +465,7 @@ export default function TeacherApp({ user, onLogout }) {
                             style={{background:s.tutor_phone?"#25d36622":"transparent",color:s.tutor_phone?"#25d366":C.muted,border:`1.5px solid ${s.tutor_phone?"#25d366":C.border}`,borderRadius:8,padding:"6px 8px",fontSize:13}}>
                             📱
                           </button>
-                          {s.tutor_phone&&(st==="absent"||st==="late"||st==="excused")&&(
+                          {s.tutor_phone&&st==="absent"&&(
                             <button className="btn" onClick={()=>{
                               const ok=sendWhatsApp({student:s,date:selectedDate,sessionName:activeSession.name,status:st,reason:attendance[s.id]?.reason||""});
                               if(!ok)showToast("⚠️ Sin teléfono");else showToast("📲 Abriendo WhatsApp...");
