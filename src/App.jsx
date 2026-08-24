@@ -4,10 +4,16 @@ import AuthScreen from "./components/AuthScreen";
 import AdminPanel from "./components/AdminPanel";
 import TeacherApp from "./components/TeacherApp";
 import ViewerApp from "./components/ViewerApp";
+import ParentView from "./components/ParentView";
 import InstallBanner from "./components/InstallBanner";
 
 export default function App() {
   const { user, loading, connError, retry, login, register, logout } = useAuth();
+
+  // Link público de solo lectura para padres/tutores (?padre=<token>) — no
+  // requiere sesión, así que se resuelve antes que cualquier estado de auth.
+  const parentToken = new URLSearchParams(window.location.search).get("padre");
+  if (parentToken) return <ParentView token={parentToken}/>;
 
   if (loading) return (
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>

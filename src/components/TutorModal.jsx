@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { sb } from "../lib/supabase";
 import { C } from "../lib/constants";
-import { cleanPhone } from "../lib/whatsapp";
+import { cleanPhone, sendAttendanceLink } from "../lib/whatsapp";
 
-export default function TutorModal({ student, onSave, onClose }) {
+export default function TutorModal({ student, sessionName, onSave, onClose }) {
   const [tutorName,  setTutorName]  = useState(student.tutor_name  || "");
   const [tutorPhone, setTutorPhone] = useState(student.tutor_phone || "");
   const [busy, setBusy] = useState(false);
@@ -52,6 +52,13 @@ export default function TutorModal({ student, onSave, onClose }) {
               Cancelar
             </button>
           </div>
+          {student.tutor_phone && (
+            <button className="btn" onClick={()=>sendAttendanceLink({ student, sessionName })}
+              style={{background:"none",color:"#25d366",border:"1.5px solid #25d36666",borderRadius:10,
+                padding:"11px 0",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
+              📎 Enviar link de asistencia por WhatsApp
+            </button>
+          )}
         </div>
       </div>
     </div>

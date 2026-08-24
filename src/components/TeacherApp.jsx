@@ -228,7 +228,7 @@ export default function TeacherApp({ user, onLogout }) {
       {toast && <Toast msg={toast}/>}
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
-      {tutorTarget && <TutorModal student={tutorTarget} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
+      {tutorTarget && <TutorModal student={tutorTarget} sessionName={activeSession?.name} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
       {importPreview && <ImportPreviewModal rows={importPreview} existingNames={students.map(s=>s.name)} onConfirm={confirmImport} onClose={()=>setImportPreview(null)}/>}
 
       <div style={{height:3,background:"linear-gradient(90deg,#b71c1c 33%,#1b3a8a 66%,#c8a020 100%)"}}/>

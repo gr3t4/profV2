@@ -22,6 +22,23 @@ export function sendWhatsApp({ student, date, sessionName, status, reason }) {
   return true;
 }
 
+// Envía al tutor, por WhatsApp, el link de solo lectura para ver la
+// asistencia de su hijo (?padre=<token>, sin necesidad de iniciar sesión).
+export function sendAttendanceLink({ student, sessionName }) {
+  const phone = student.tutor_phone?.replace(/\D/g, "");
+  if (!phone) return false;
+
+  const fullPhone = phone.length === 10 ? "52" + phone : phone;
+  const tutorName = student.tutor_name ? `, ${student.tutor_name}` : "";
+  const link = `${window.location.origin}/?padre=${student.parent_token}`;
+
+  const msg = `Estimado tutor${tutorName}:\n\nAquí puede consultar la asistencia de *${student.name}* en *${sessionName}* en cualquier momento:\n${link}\n\n_CBTIS 179 — AppProf_`;
+
+  const url = `https://wa.me/${fullPhone}?text=${encodeURIComponent(msg)}`;
+  window.open(url, "_blank");
+  return true;
+}
+
 // Limpia el número: solo dígitos, agrega 52 si es México y no lo tiene.
 export function cleanPhone(raw) {
   const digits = raw.replace(/\D/g, "");
