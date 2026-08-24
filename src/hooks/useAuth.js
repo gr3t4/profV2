@@ -38,6 +38,10 @@ export function useAuth() {
       const { data: profile, error } = await withRetry(() =>
         withTimeout(sb.from("profiles").select("*").eq("id", authUser.id).single(), 12000)
       );
+      // Un error de red/fetch fallido se resuelve como { error } en vez de lanzar
+      // una excepción, y no trae `code` (a diferencia de un error real de PostgREST,
+      // p.ej. PGRST116 = perfil no encontrado). Lo tratamos como falla de conexión.
+      if (error && !error.code) throw error;
       if (error || !profile || profile.active === false) {
         // Respuesta real del servidor: el perfil no existe o está desactivado.
         await sb.auth.signOut().catch(() => {});
@@ -57,20 +61,13 @@ export function useAuth() {
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      try {
-        const { data: { session } } = await withRetry(() => withTimeout(sb.auth.getSession(), 12000));
-        if (!active) return;
-        await loadProfile(session?.user ?? null);
-      } catch {
-        if (active) setConnError(true);
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-
+    // onAuthStateChange dispara de inmediato con la sesión actual al suscribirse
+    // (evento INITIAL_SESSION), así que basta con esta única fuente de verdad —
+    // llamar además a getSession() por separado duplicaba la carga del perfil y
+    // producía una condición de carrera entre ambas llamadas.
     const { data: sub } = sb.auth.onAuthStateChange(async (_event, session) => {
       await loadProfile(session?.user ?? null);
+      if (active) setLoading(false);
     });
 
     return () => {
@@ -79,20 +76,11 @@ export function useAuth() {
     };
   }, [loadProfile]);
 
+  // Recarga completa: la forma más simple y confiable de reintentar sin arriesgar
+  // otra condición de carrera entre una llamada manual y onAuthStateChange.
   const retry = useCallback(() => {
-    setConnError(false);
-    setLoading(true);
-    (async () => {
-      try {
-        const { data: { session } } = await withRetry(() => withTimeout(sb.auth.getSession(), 12000));
-        await loadProfile(session?.user ?? null);
-      } catch {
-        setConnError(true);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [loadProfile]);
+    window.location.reload();
+  }, []);
 
   async function login(username, password) {
     const email = usernameToEmail(username);
