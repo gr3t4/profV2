@@ -7,7 +7,8 @@ import ExportModal from "./ExportModal";
 import ImportPreviewModal from "./ImportPreviewModal";
 import ReportModule from "./ReportModule";
 import TutorModal from "./TutorModal";
-import { sendWhatsApp } from "../lib/whatsapp";
+import TutoriaModal from "./TutoriaModal";
+import { sendWhatsApp, sendTutoriaReport } from "../lib/whatsapp";
 import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStudents";
 import * as XLSX from "xlsx";
 export default function TeacherApp({ user, onLogout }) {
@@ -29,9 +30,12 @@ export default function TeacherApp({ user, onLogout }) {
   const [newSessDate, setNewSessDate]   = useState(today());
   const [toast, setToast]               = useState(null);
   const [saving, setSaving]             = useState(false);
+  const [saveError, setSaveError]       = useState(false);
+  const [lastSaved, setLastSaved]       = useState(null);
   const [justifyTarget, setJustifyTarget] = useState(null);
   const [showExport, setShowExport]     = useState(false);
   const [tutorTarget, setTutorTarget]   = useState(null);
+  const [showTutoria, setShowTutoria]   = useState(false);
   const [importPreview, setImportPreview] = useState(null); // rows parsed, pending confirmación
   const fileRef = useRef();
   const isViewer = user.role === "viewer";
@@ -57,7 +61,7 @@ export default function TeacherApp({ user, onLogout }) {
     const d = today(); setSelectedDate(d);
     setClassHours(hm[d] || 1);
     await loadAttendanceForDate(s.id, d);
-    setFilter("all"); setSearchQuery(""); setSearchResult(null);
+    setFilter("all"); setSearchQuery(""); setSearchResult(null); setLastSaved(null); setSaveError(false);
     setMainTab("attendance"); setView("attendance");
   }
 
@@ -74,34 +78,55 @@ export default function TeacherApp({ user, onLogout }) {
     setFilter("all");
   }
 
-  async function saveAttendanceForDate() {
-    setSaving(true);
-    const upserts = students.map(s => ({
-      session_id: activeSession.id, student_id: s.id, date: selectedDate,
-      status: attendance[s.id]?.status || "pending",
-      reason: attendance[s.id]?.reason || null,
+  // Guarda en Supabase los registros indicados ({ id: {status, reason} }) para la fecha dada.
+  // Se llama automáticamente cada vez que se marca la asistencia.
+  async function persistAttendance(entries, date) {
+    const ids = Object.keys(entries);
+    if (!ids.length || !activeSession) return;
+    setSaving(true); setSaveError(false);
+    const upserts = ids.map(id => ({
+      session_id: activeSession.id, student_id: id, date,
+      status: entries[id].status,
+      reason: entries[id].reason || null,
     }));
-    if (upserts.length > 0) {
-      const { error } = await sb.from("attendance").upsert(upserts, { onConflict:"student_id,date" });
-      if (error) { showToast("❌ " + error.message); setSaving(false); return; }
+    const { error } = await sb.from("attendance").upsert(upserts, { onConflict:"student_id,date" });
+    if (error) { setSaving(false); setSaveError(true); showToast("❌ No se guardó: " + error.message); return; }
+    // Primera vez que se registra esta fecha: guardar también las horas y agregarla a la lista
+    if (!allDates.includes(date)) {
+      const hrs = parseFloat(classHours) || 1;
+      await sb.from("class_hours").upsert({ session_id:activeSession.id, date, hours:hrs }, { onConflict:"session_id,date" });
+      setDateHours(p => ({...p, [date]: hrs}));
+      setAllDates(p => p.includes(date) ? p : [...p, date].sort().reverse());
     }
-    // Guardar horas de esta clase
-    const hrs = parseFloat(classHours) || 1;
-    await sb.from("class_hours").upsert({ session_id:activeSession.id, date:selectedDate, hours:hrs }, { onConflict:"session_id,date" });
-    setDateHours(p => ({...p, [selectedDate]: hrs}));
-    const dates = allDates.includes(selectedDate) ? allDates : [...allDates, selectedDate].sort().reverse();
-    setAllDates(dates); showToast("💾 Guardado — " + fmtDate(selectedDate)); setSaving(false);
+    setSaving(false); setLastSaved(new Date());
   }
 
-  function toggleAtt(id, status) { setAttendance(prev => ({...prev, [id]: {...(prev[id]||{}), status}})); }
+  // Guarda las horas de clase de la fecha activa (si la fecha ya tiene registros)
+  async function persistHours() {
+    if (!activeSession || !allDates.includes(selectedDate)) return;
+    const hrs = parseFloat(classHours) || 1;
+    if (dateHours[selectedDate] === hrs) return;
+    const { error } = await sb.from("class_hours").upsert({ session_id:activeSession.id, date:selectedDate, hours:hrs }, { onConflict:"session_id,date" });
+    if (error) { showToast("❌ " + error.message); return; }
+    setDateHours(p => ({...p, [selectedDate]: hrs}));
+    showToast("💾 Horas guardadas");
+  }
+
+  function toggleAtt(id, status) {
+    const reason = status === "excused" ? (attendance[id]?.reason || "") : "";
+    setAttendance(prev => ({...prev, [id]: { status, reason }}));
+    persistAttendance({ [id]: { status, reason } }, selectedDate);
+  }
   function markAll(status) {
     const att = {}; students.forEach(s => att[s.id] = { status, reason:"" }); setAttendance(att);
+    persistAttendance(att, selectedDate);
     showToast(STATUS[status].icon + " Todos: " + STATUS[status].label);
   }
   function openJustify(student) { setJustifyTarget({ student, date:selectedDate }); }
   function saveJustification(reason) {
-    const id = justifyTarget.student.id;
-    setAttendance(prev => ({...prev, [id]: { status:"excused", reason }}));
+    const { student, date } = justifyTarget;
+    setAttendance(prev => ({...prev, [student.id]: { status:"excused", reason }}));
+    persistAttendance({ [student.id]: { status:"excused", reason } }, date);
     setJustifyTarget(null); showToast("📝 Justificación guardada");
   }
 
@@ -206,6 +231,33 @@ export default function TeacherApp({ user, onLogout }) {
   }
 
   const getStatus = (id) => attendance[id]?.status || "pending";
+
+  // Aviso a papás: un mensaje por cada alumno con falta y teléfono registrado
+  function notifyParents() {
+    const ausentes = students.filter(s=>getStatus(s.id)==="absent"&&s.tutor_phone);
+    if(!ausentes.length){showToast("⚠️ Sin faltas con teléfono de papá/mamá registrado");return;}
+    ausentes.forEach(s=>sendWhatsApp({student:s,date:selectedDate,sessionName:activeSession.name,status:"absent",reason:"",teacherName:user.name}));
+    showToast(`📲 ${ausentes.length} mensaje(s) a papás`);
+  }
+
+  // Aviso a Tutorías: un solo reporte con la lista de faltas del día
+  function sendTutoria(sess = activeSession) {
+    const ausentes = students.filter(s=>getStatus(s.id)==="absent");
+    if(!ausentes.length){showToast("⚠️ No hay faltas en esta fecha");return;}
+    sendTutoriaReport({ phone:sess.tutoria_phone, contactName:sess.tutoria_name, date:selectedDate, sessionName:sess.name,
+      absentStudents:ausentes, totalStudents:students.length, teacherName:user.name });
+    setShowTutoria(false);
+    showToast("📲 Reporte a Tutorías abierto");
+  }
+  function notifyTutoria() {
+    if(!activeSession.tutoria_phone){ setShowTutoria(true); return; }
+    sendTutoria();
+  }
+  function saveTutoriaContact(updated) {
+    setActiveSess(updated);
+    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
+    showToast("🏫 Contacto de Tutorías guardado");
+  }
   const counts = {
     present: students.filter(s=>getStatus(s.id)==="present").length,
     late:    students.filter(s=>getStatus(s.id)==="late").length,
@@ -228,6 +280,7 @@ export default function TeacherApp({ user, onLogout }) {
       {toast && <Toast msg={toast}/>}
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
+      {showTutoria && activeSession && <TutoriaModal session={activeSession} absentCount={counts.absent} onSave={saveTutoriaContact} onSend={sendTutoria} onClose={()=>setShowTutoria(false)}/>}
       {tutorTarget && <TutorModal student={tutorTarget} sessionName={activeSession?.name} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
       {importPreview && <ImportPreviewModal rows={importPreview} existingNames={students.map(s=>s.name)} onConfirm={confirmImport} onClose={()=>setImportPreview(null)}/>}
 
@@ -307,7 +360,7 @@ export default function TeacherApp({ user, onLogout }) {
             {/* Date panel */}
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"16px 18px",marginBottom:16}}>
               <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1,marginBottom:12}}>SELECTOR DE FECHA</div>
-              {/* Fecha activa + horas + guardar */}
+              {/* Fecha activa + horas + estado de guardado */}
               <div style={{display:"flex",gap:10,alignItems:"flex-end",marginBottom:14,flexWrap:"wrap"}}>
                 <div style={{flex:2,minWidth:130}}>
                   <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Fecha</div>
@@ -317,45 +370,42 @@ export default function TeacherApp({ user, onLogout }) {
                   <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Horas de clase</div>
                   <input className="inp" type="number" min="0.5" max="12" step="0.5"
                     value={classHours}
+                    disabled={isViewer}
                     onChange={e=>setClassHours(e.target.value)}
+                    onBlur={persistHours}
                     style={{textAlign:"center"}}/>
                 </div>
-                {!isViewer&&<button className="btn" onClick={saveAttendanceForDate} disabled={saving}
-                  style={{background:`linear-gradient(135deg,${C.teal},${C.accent})`,color:"#fff",borderRadius:10,
-                    padding:"10px 18px",fontSize:13,fontWeight:600,fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0,alignSelf:"flex-end"}}>
-                  {saving?"Guardando...":"💾 Guardar"}
-                </button>}
+                {!isViewer&&(
+                  <div title="La asistencia se guarda automáticamente al marcar a cada alumno"
+                    style={{alignSelf:"flex-end",flexShrink:0,borderRadius:10,padding:"10px 14px",fontSize:12,fontWeight:600,whiteSpace:"nowrap",
+                      background:saveError?`${C.danger}22`:`${C.teal}22`,
+                      color:saveError?C.danger:C.teal,
+                      border:`1px solid ${saveError?C.danger:C.teal}55`}}>
+                    {saving?"⏳ Guardando…":saveError?"⚠️ Error al guardar":lastSaved?"✅ Guardado automático":"💾 Autoguardado activo"}
+                  </div>
+                )}
               </div>
-              {/* Lista de fechas guardadas */}
-              {allDates.length > 0 && (
+              {/* Lista desplegable de fechas guardadas */}
+              {allDates.length > 0 ? (
                 <div>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <span>Fechas guardadas <span style={{background:`${C.accent}22`,color:C.accent,borderRadius:20,padding:"1px 8px",fontSize:11}}>{allDates.length}</span></span>
                     <span style={{color:C.teal,fontWeight:700}}>
                       {Object.values(dateHours).reduce((a,b)=>a+b,0)} hrs totales
                     </span>
                   </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:180,overflowY:"auto",WebkitOverflowScrolling:"touch",paddingRight:2}}>
+                  <select className="inp" value={allDates.includes(selectedDate)?selectedDate:""}
+                    onChange={e=>e.target.value&&changeDate(e.target.value)}
+                    style={{width:"100%",cursor:"pointer"}}>
+                    {!allDates.includes(selectedDate)&&<option value="">— {fmtDate(selectedDate)} (sin registros) —</option>}
                     {allDates.map(d=>(
-                      <button key={d} className="btn" onClick={()=>changeDate(d)} style={{
-                        background:d===selectedDate?`${C.accent}22`:"transparent",
-                        color:d===selectedDate?C.accent:C.muted,
-                        border:`1px solid ${d===selectedDate?C.accent:C.border}`,
-                        borderRadius:8,padding:"8px 14px",fontSize:13,fontFamily:"inherit",
-                        fontWeight:d===selectedDate?700:400,
-                        textAlign:"left",width:"100%",
-                        display:"flex",alignItems:"center",justifyContent:"space-between",
-                      }}>
-                        <span>{fmtDate(d)}</span>
-                        <span style={{fontSize:11,color:C.teal,fontWeight:600}}>
-                          {dateHours[d]||1}h
-                        </span>
-                      </button>
+                      <option key={d} value={d}>{fmtDate(d)} · {dateHours[d]||1}h</option>
                     ))}
-                  </div>
+                  </select>
                 </div>
+              ) : (
+                <span style={{color:C.muted,fontSize:12,fontStyle:"italic"}}>Sin fechas guardadas aún</span>
               )}
-              {allDates.length===0&&<span style={{color:C.muted,fontSize:12,fontStyle:"italic"}}>Sin fechas guardadas aún</span>}
             </div>
             {/* Search */}
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px 18px",marginBottom:20}}>
@@ -424,14 +474,20 @@ export default function TeacherApp({ user, onLogout }) {
                   <button className="btn" onClick={()=>markAll("late")} style={{background:`${C.late}22`,color:C.late,border:`1px solid ${C.late}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>🕐 Todos</button>
                   <button className="btn" onClick={()=>markAll("absent")} style={{background:`${C.danger}22`,color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>❌ Todos</button>
                   <button className="btn" onClick={()=>setShowExport(true)} style={{background:`linear-gradient(135deg,${C.purple},${C.accent})`,color:"#fff",borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>📦 Exportar</button>
-                  <button className="btn" onClick={()=>{
-                    const ausentes = students.filter(s=>getStatus(s.id)==="absent"&&s.tutor_phone);
-                    if(!ausentes.length){showToast("⚠️ Sin ausentes con tutor registrado");return;}
-                    ausentes.forEach(s=>sendWhatsApp({student:s,date:selectedDate,sessionName:activeSession.name,status:"absent",reason:""}));
-                    showToast(`📲 ${ausentes.length} mensajes abiertos`);
-                  }} style={{background:"#25d36622",color:"#25d366",border:"1.5px solid #25d36666",borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
-                    📲 Avisar ausentes
+                  <button className="btn" onClick={notifyParents} title="Un mensaje a cada papá/mamá de los alumnos con falta"
+                    style={{background:"#25d36622",color:"#25d366",border:"1.5px solid #25d36666",borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
+                    👨‍👩‍👧 Avisar papás
                   </button>
+                  <div style={{display:"flex"}}>
+                    <button className="btn" onClick={notifyTutoria} title="Un solo reporte con la lista de faltas para Tutorías"
+                      style={{background:`${C.gold}22`,color:C.gold,border:`1.5px solid ${C.gold}66`,borderRadius:"9px 0 0 9px",padding:"8px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
+                      🏫 Avisar tutorías
+                    </button>
+                    <button className="btn" onClick={()=>setShowTutoria(true)} title="Configurar contacto de Tutorías"
+                      style={{background:`${C.gold}11`,color:C.gold,border:`1.5px solid ${C.gold}66`,borderLeft:"none",borderRadius:"0 9px 9px 0",padding:"8px 10px",fontSize:13}}>
+                      ⚙️
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -467,7 +523,7 @@ export default function TeacherApp({ user, onLogout }) {
                           </button>
                           {s.tutor_phone&&st==="absent"&&(
                             <button className="btn" onClick={()=>{
-                              const ok=sendWhatsApp({student:s,date:selectedDate,sessionName:activeSession.name,status:st,reason:attendance[s.id]?.reason||""});
+                              const ok=sendWhatsApp({student:s,date:selectedDate,sessionName:activeSession.name,status:st,reason:attendance[s.id]?.reason||"",teacherName:user.name});
                               if(!ok)showToast("⚠️ Sin teléfono");else showToast("📲 Abriendo WhatsApp...");
                             }} style={{background:"#25d36622",color:"#25d366",border:"1.5px solid #25d36666",borderRadius:8,padding:"6px 8px",fontSize:13}}>
                               📲
@@ -478,11 +534,24 @@ export default function TeacherApp({ user, onLogout }) {
                       </div>
                       {/* Fila inferior: botones de asistencia — ancho completo */}
                       {!isViewer&&(
-                        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-                          <button className="btn" onClick={()=>toggleAtt(s.id,"present")} style={{background:st==="present"?C.success:`${C.success}15`,color:st==="present"?"#fff":C.success,border:`1.5px solid ${C.success}66`,borderRadius:8,padding:"8px 4px",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>✅ Presente</button>
-                          <button className="btn" onClick={()=>toggleAtt(s.id,"late")} style={{background:st==="late"?C.late:`${C.late}15`,color:st==="late"?"#fff":C.late,border:`1.5px solid ${C.late}66`,borderRadius:8,padding:"8px 4px",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>🕐 Retardo</button>
-                          <button className="btn" onClick={()=>openJustify(s)} style={{background:st==="excused"?C.excused:`${C.excused}15`,color:st==="excused"?"#fff":C.excused,border:`1.5px solid ${C.excused}66`,borderRadius:8,padding:"8px 4px",fontSize:12,fontWeight:st==="excused"?700:600,fontFamily:"inherit"}}>📝 Justif.</button>
-                          <button className="btn" onClick={()=>toggleAtt(s.id,"absent")} style={{background:st==="absent"?C.danger:`${C.danger}15`,color:st==="absent"?"#fff":C.danger,border:`1.5px solid ${C.danger}66`,borderRadius:8,padding:"8px 4px",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>❌ Ausente</button>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:6}}>
+                          {[
+                            {key:"present", icon:"✅", label:"Presente", color:C.success, onClick:()=>toggleAtt(s.id,"present")},
+                            {key:"late",    icon:"🕐", label:"Retardo",  color:C.late,    onClick:()=>toggleAtt(s.id,"late")},
+                            {key:"excused", icon:"📝", label:"Justif.",  color:C.excused, onClick:()=>openJustify(s)},
+                            {key:"absent",  icon:"❌", label:"Falta",    color:C.danger,  onClick:()=>toggleAtt(s.id,"absent")},
+                          ].map(b=>{
+                            const on = st===b.key;
+                            return (
+                              <button key={b.key} className="btn" onClick={b.onClick}
+                                style={{background:on?b.color:`${b.color}15`,color:on?"#fff":b.color,border:`1.5px solid ${b.color}66`,borderRadius:8,
+                                  padding:"6px 2px",minWidth:0,fontFamily:"inherit",fontWeight:on?700:600,
+                                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,lineHeight:1.1}}>
+                                <span style={{fontSize:15}}>{b.icon}</span>
+                                <span style={{fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{b.label}</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

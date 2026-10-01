@@ -116,6 +116,7 @@ export function GlobalStyles() {
       .inp{background:${C.surface};border:1.5px solid ${C.border};color:${C.text};border-radius:8px;padding:10px 14px;font-size:15px!important;font-family:'Inter',sans-serif;transition:border-color .2s;width:100%;}
       .inp:focus{border-color:${C.accent};}
       .inp::placeholder{color:${C.muted};}
+      select.inp option{background:${C.surface};color:${C.text};}
       textarea.inp{font-family:'Inter',sans-serif;}
       .tab-on{color:${C.text}!important;border-bottom:2px solid ${C.accent}!important;}
       .row-hover{transition:background .15s;}
