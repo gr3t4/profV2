@@ -3,6 +3,19 @@ import { sb } from "../lib/supabase";
 import { C, STATUS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty } from "./Shared";
 
+// true en pantallas angostas (celular)
+function useIsMobile(bp = 760) {
+  const q = `(max-width: ${bp}px)`;
+  const [m, setM] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const on = () => setM(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [q]);
+  return m;
+}
+
 function pctColor(p) {
   if (p === null) return C.muted;
   if (p >= 80) return C.success;
@@ -53,7 +66,7 @@ function GroupCard({ session, isActive, onClick }) {
       background: isActive ? `${C.accent}14` : C.card,
       border: `1px solid ${isActive ? C.accent : C.border}`,
       borderLeft: `3px solid ${pctColor(pct)}`,
-      borderRadius: 12, padding: "14px 16px", cursor: "pointer", transition: "all .18s"
+      borderRadius: 12, padding: "12px 14px", cursor: "pointer", transition: "all .18s", minWidth: 0
     }}>
       <div style={{display:"flex",alignItems:"center",gap:12}}>
         <Ring pct={pct} size={52} stroke={5}/>
@@ -79,7 +92,7 @@ function GroupCard({ session, isActive, onClick }) {
 }
 
 // ── Detalle de grupo ─────────────────────────────────────────────
-function GroupDetail({ session, onClose, selectedDate }) {
+function GroupDetail({ session, onClose, selectedDate, isMobile }) {
   const [filter, setFilter] = useState("all");
   const getStatus = id => session.attendance[id]?.status || "pending";
   const students = session.students;
@@ -92,21 +105,27 @@ function GroupDetail({ session, onClose, selectedDate }) {
 
   return (
     <div style={{animation:"fadeUp .3s ease both"}}>
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"22px 24px",marginBottom:16,position:"relative"}}>
+      {isMobile && (
         <button className="btn" onClick={onClose}
+          style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit",marginBottom:12}}>
+          ← Volver a grupos
+        </button>
+      )}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:isMobile?"16px 14px":"22px 24px",marginBottom:16,position:"relative"}}>
+        {!isMobile && <button className="btn" onClick={onClose}
           style={{position:"absolute",top:14,right:14,background:`${C.border}`,color:C.muted,border:"none",borderRadius:8,padding:"4px 10px",fontSize:13}}>
           ✕
-        </button>
-        <div style={{display:"flex",alignItems:"center",gap:18,marginBottom:18}}>
-          <Ring pct={pct} size={80} stroke={7}/>
-          <div>
-            <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:18,color:C.text}}>{session.name}</div>
+        </button>}
+        <div style={{display:"flex",alignItems:"center",gap:isMobile?12:18,marginBottom:16}}>
+          <Ring pct={pct} size={isMobile?64:80} stroke={7}/>
+          <div style={{minWidth:0}}>
+            <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:isMobile?16:18,color:C.text,overflowWrap:"anywhere"}}>{session.name}</div>
             <div style={{color:C.muted,fontSize:13,marginTop:4}}>👤 {session.ownerName}</div>
             <div style={{color:C.muted,fontSize:12,marginTop:2}}>📅 {fmtDate(selectedDate)}</div>
           </div>
         </div>
 
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:6,marginBottom:12}}>
           {[
             {label:"Presentes",  v:counts.present, color:C.success, icon:"✅"},
             {label:"Retardos",   v:counts.late,    color:C.late,    icon:"🕐"},
@@ -114,10 +133,10 @@ function GroupDetail({ session, onClose, selectedDate }) {
             {label:"Ausentes",   v:counts.absent,  color:C.danger,  icon:"❌"},
             {label:"Pendientes", v:counts.pending, color:C.muted,   icon:"⏳"},
           ].map(st=>(
-            <div key={st.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
+            <div key={st.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 2px",textAlign:"center",minWidth:0}}>
               <div style={{fontSize:18}}>{st.icon}</div>
               <div style={{fontSize:20,fontWeight:700,color:st.color,fontFamily:"'Sora',sans-serif"}}>{st.v}</div>
-              <div style={{color:C.muted,fontSize:10,marginTop:2}}>{st.label}</div>
+              <div style={{color:C.muted,fontSize:10,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.label}</div>
             </div>
           ))}
         </div>
@@ -137,13 +156,13 @@ function GroupDetail({ session, onClose, selectedDate }) {
       </div>
 
       {filtered.length===0 ? <Empty icon="👥" msg="Sin alumnos en este filtro"/> : (
-        <div style={{display:"grid",gap:6,maxHeight:"calc(100vh - 420px)",overflowY:"auto",paddingRight:4}}>
+        <div style={isMobile?{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:6}:{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:6,maxHeight:"calc(100vh - 420px)",overflowY:"auto",paddingRight:4}}>
           {filtered.map((s,i)=>{
             const st  = getStatus(s.id);
             const cfg = STATUS[st];
             const reason = session.attendance[s.id]?.reason||"";
             return (
-              <div key={s.id} style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:12,animation:`slideIn .2s ease both`,animationDelay:`${i*.015}s`}}>
+              <div key={s.id} style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"10px 12px",minWidth:0,display:"flex",alignItems:"center",gap:12,animation:`slideIn .2s ease both`,animationDelay:`${i*.015}s`}}>
                 <div style={{width:32,height:32,borderRadius:8,background:`${cfg.color}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:cfg.color,flexShrink:0}}>
                   {s.name.charAt(0).toUpperCase()}
                 </div>
@@ -188,7 +207,7 @@ function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, se
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
         <span>🔍</span>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar alumno, grupo o docente..."
-          style={{flex:1,background:"transparent",border:"none",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+          style={{flex:1,minWidth:0,background:"transparent",border:"none",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
         {search&&<button className="btn" onClick={()=>setSearch("")} style={{background:"none",color:C.muted,border:"none",fontSize:15,padding:"0 2px"}}>×</button>}
         <button className="btn" onClick={exportXlsx}
           style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit",fontWeight:600,flexShrink:0}}>
@@ -206,15 +225,15 @@ function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, se
       {filtered.length===0 ? (
         <Empty icon="🎉" msg={`Sin faltas, retardos ni justificantes el ${fmtDate(selectedDate)}.`}/>
       ) : (
-        <div style={{display:"grid",gap:6}}>
+        <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:6}}>
           {filtered.map((r,i) => {
             const cfg = STATUS[r.status];
             return (
-              <div key={r.student.id+r.sessionId} className="row-hover" style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"11px 16px",display:"flex",alignItems:"center",gap:14,animation:`slideIn .2s ease both`,animationDelay:`${Math.min(i,20)*.015}s`,flexWrap:"wrap"}}>
+              <div key={r.student.id+r.sessionId} className="row-hover" style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"11px 12px",display:"flex",alignItems:"center",gap:10,minWidth:0,animation:`slideIn .2s ease both`,animationDelay:`${Math.min(i,20)*.015}s`,flexWrap:"wrap"}}>
                 <div style={{width:34,height:34,borderRadius:9,background:`${cfg.color}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:cfg.color,flexShrink:0}}>
                   {r.student.name.charAt(0).toUpperCase()}
                 </div>
-                <div style={{flex:1,minWidth:140}}>
+                <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:600,fontSize:13,color:C.text}}>{r.student.name}</div>
                   <div style={{fontSize:11,color:C.muted,marginTop:1}}>📚 {r.sessionName} · 👤 {r.ownerName}</div>
                   {r.status==="excused"&&r.reason&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📝 {r.reason}</div>}
@@ -243,6 +262,7 @@ export default function ViewerApp({ user, onLogout }) {
   const [statusFilter, setStatusFilter]   = useState("all");
   const [lastUpdate, setLastUpdate]       = useState(null);
   const [filterRisk, setFilterRisk]       = useState("all"); // all | ok | warning | danger
+  const isMobile = useIsMobile();
 
   async function loadAll(date) {
     setLoading(true);
@@ -331,65 +351,68 @@ export default function ViewerApp({ user, onLogout }) {
       <Glow bottom="-10%" left="-5%" color="200,160,32" size="35vw"/>
 
       <div style={{height:3,background:"linear-gradient(90deg,#b71c1c 33%,#1b3a8a 66%,#c8a020 100%)"}}/>
-      <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 20px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
-        <div style={{maxWidth:1400,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:58,flexWrap:"wrap",gap:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <img src="/dgti-logo.png" alt="CBTIS 179" style={{height:26,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
-            <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:17,color:C.text}}>AppProf</span>
-            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,letterSpacing:.5}}>PREFECTURA</span>
+      <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 14px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
+        <div style={{maxWidth:1400,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+            <img src="/dgti-logo.png" alt="CBTIS 179" style={{height:24,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
+            <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
+            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:.5,flexShrink:0}}>PREFECTURA</span>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <input type="date" value={selectedDate} onChange={e=>{ setSelectedDate(e.target.value); setSelectedId(null); }}
-              style={{background:C.surface,border:`1.5px solid ${C.border}`,color:C.text,borderRadius:8,padding:"6px 10px",fontSize:12,fontFamily:"inherit"}}/>
-            {selectedDate!==today() && (
-              <button className="btn" onClick={()=>setSelectedDate(today())}
-                style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 10px",fontSize:11,fontFamily:"inherit",fontWeight:600}}>
-                Hoy
-              </button>
-            )}
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
             {lastUpdate&&<span className="hide-mobile" style={{fontSize:11,color:C.muted}}>🔄 {lastUpdate.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</span>}
             <span className="hide-mobile" style={{fontSize:13,color:C.muted}}>👤 {user.name}</span>
-            <button className="btn" onClick={()=>loadAll(selectedDate)}
-              style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"5px 12px",fontSize:12,fontFamily:"inherit",fontWeight:600}}>
+            <button className="btn" onClick={()=>loadAll(selectedDate)} title="Actualizar"
+              style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 10px",fontSize:13,fontFamily:"inherit",fontWeight:600}}>
               🔄
             </button>
             <button className="btn" onClick={onLogout}
-              style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:`1px solid rgba(239,68,68,0.2)`,borderRadius:8,padding:"6px 14px",fontSize:13,fontFamily:"inherit"}}>
+              style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:`1px solid rgba(239,68,68,0.2)`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>
               Salir
             </button>
           </div>
         </div>
       </header>
 
-      <div className="tabs-scroll" style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 20px"}}>
+      <div className="tabs-scroll" style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 8px"}}>
         <div style={{maxWidth:1400,margin:"0 auto",display:"flex",gap:4,minWidth:"max-content"}}>
           {[["grupos","📚 Grupos"],["ausencias",`🚨 Faltas y retardos${absenceRows.length?` (${absenceRows.length})`:""}`]].map(([id,label])=>(
             <button key={id} className="btn" onClick={()=>setTab(id)}
-              style={{background:"none",color:tab===id?C.accent:C.muted,borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",padding:"12px 18px",fontSize:14,fontFamily:"inherit",fontWeight:tab===id?600:400,transition:"all .2s"}}>
+              style={{background:"none",color:tab===id?C.accent:C.muted,borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",padding:"12px 14px",fontSize:14,fontFamily:"inherit",fontWeight:tab===id?600:400,whiteSpace:"nowrap",transition:"all .2s"}}>
               {label}
             </button>
           ))}
         </div>
       </div>
 
-      <main style={{maxWidth:1400,margin:"0 auto",padding:"20px 16px",position:"relative",zIndex:1}}>
+      <main style={{maxWidth:1400,margin:"0 auto",padding:isMobile?"16px 12px":"20px 16px",position:"relative",zIndex:1}}>
 
-        <div style={{marginBottom:16}}>
-          <h2 style={{fontFamily:"'Sora',sans-serif",fontSize:20,fontWeight:800}}>
+        <div style={{marginBottom:14}}>
+          <h2 style={{fontFamily:"'Sora',sans-serif",fontSize:isMobile?18:20,fontWeight:800}}>
             {tab==="grupos" ? "Monitor de asistencia" : "Informe de faltas y retardos"}
           </h2>
-          <p style={{color:C.muted,fontSize:13,marginTop:3}}>📅 {fmtDate(selectedDate)} · {sessions.length} grupos</p>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
+            <input type="date" className="inp" value={selectedDate} onChange={e=>{ if(e.target.value){ setSelectedDate(e.target.value); setSelectedId(null); } }}
+              style={{width:"auto",flex:"0 1 180px",padding:"8px 10px"}}/>
+            {selectedDate!==today() && (
+              <button className="btn" onClick={()=>{ setSelectedDate(today()); setSelectedId(null); }}
+                style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"8px 12px",fontSize:12,fontFamily:"inherit",fontWeight:600}}>
+                Hoy
+              </button>
+            )}
+            <span style={{color:C.muted,fontSize:12}}>{fmtDate(selectedDate)} · {sessions.length} grupos</span>
+          </div>
         </div>
 
-        {!loading && (
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"20px 24px",marginBottom:20}}>
-            <div style={{display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
-              <Ring pct={globalPct} size={100} stroke={9}/>
-              <div style={{flex:1,minWidth:200}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:10}}>RESUMEN INSTITUCIONAL</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:10}}>
+        {!loading && tab==="grupos" && !(isMobile && selected) && (
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:isMobile?"14px":"20px 24px",marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:isMobile?14:24,flexWrap:"wrap"}}>
+              {!isMobile && <Ring pct={globalPct} size={100} stroke={9}/>}
+              <div style={{flex:"1 1 260px",minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:10,display:"flex",justifyContent:"space-between"}}>
+                  <span>RESUMEN INSTITUCIONAL</span>
+                  {isMobile && <span style={{color:pctColor(globalPct),letterSpacing:0,fontSize:13}}>{globalPct!==null?globalPct+"% asistencia":"—"}</span>}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:6,marginBottom:10}}>
                   {[
                     {label:"Presentes",  v:G.present, color:C.success, icon:"✅"},
                     {label:"Retardos",   v:G.late,    color:C.late,    icon:"🕐"},
@@ -397,16 +420,16 @@ export default function ViewerApp({ user, onLogout }) {
                     {label:"Ausentes",   v:G.absent,  color:C.danger,  icon:"❌"},
                     {label:"Pendientes", v:G.pending, color:C.muted,   icon:"⏳"},
                   ].map(st=>(
-                    <div key={st.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
+                    <div key={st.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 2px",textAlign:"center",minWidth:0}}>
                       <div style={{fontSize:16}}>{st.icon}</div>
                       <div style={{fontSize:20,fontWeight:700,color:st.color,fontFamily:"'Sora',sans-serif"}}>{st.v}</div>
-                      <div style={{color:C.muted,fontSize:10,marginTop:1}}>{st.label}</div>
+                      <div style={{color:C.muted,fontSize:10,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.label}</div>
                     </div>
                   ))}
                 </div>
                 <SegBar counts={G} total={G.total} height={10}/>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:140}}>
+              {!isMobile && <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:140}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:1}}>GRUPOS POR ESTADO</div>
                 {[
                   {label:"Asistencia alta",  count:riskCount.ok,      color:C.success, icon:"🟢"},
@@ -420,7 +443,7 @@ export default function ViewerApp({ user, onLogout }) {
                     <span style={{fontWeight:700,color:r.color}}>{r.count}</span>
                   </div>
                 ))}
-              </div>
+              </div>}
             </div>
           </div>
         )}
@@ -430,9 +453,9 @@ export default function ViewerApp({ user, onLogout }) {
         ) : tab==="ausencias" ? (
           <AbsenceReport rows={absenceRows} selectedDate={selectedDate} search={reportSearch} setSearch={setReportSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter}/>
         ) : (
-          <div style={{display:"grid",gridTemplateColumns:selected?"minmax(280px,360px) 1fr":"1fr",gap:20,alignItems:"start"}}>
+          <div style={{display:"grid",gridTemplateColumns:(selected&&!isMobile)?"minmax(280px,360px) minmax(0,1fr)":"minmax(0,1fr)",gap:20,alignItems:"start"}}>
 
-            <div>
+            {!(isMobile && selected) && <div style={{minWidth:0}}>
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
                 <span>🔍</span>
                 <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar grupo o docente..."
@@ -449,17 +472,17 @@ export default function ViewerApp({ user, onLogout }) {
               </div>
 
               {displayed.length===0 ? <Empty icon="📚" msg="Sin grupos"/> : (
-                <div style={{display:"grid",gap:8,maxHeight:"calc(100vh - 340px)",overflowY:"auto",paddingRight:4}}>
+                <div style={isMobile?{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8}:{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8,maxHeight:"calc(100vh - 340px)",overflowY:"auto",paddingRight:4}}>
                   {displayed.map(s=>(
-                    <GroupCard key={s.id} session={s} isActive={selectedId===s.id} onClick={()=>setSelectedId(s.id)}/>
+                    <GroupCard key={s.id} session={s} isActive={selectedId===s.id} onClick={()=>{ setSelectedId(s.id); if(isMobile) window.scrollTo({top:0}); }}/>
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
 
             {selected && (
-              <div style={{position:"sticky",top:76}}>
-                <GroupDetail session={selected} selectedDate={selectedDate} onClose={()=>setSelectedId(null)}/>
+              <div style={isMobile?{minWidth:0}:{position:"sticky",top:76,minWidth:0}}>
+                <GroupDetail session={selected} selectedDate={selectedDate} isMobile={isMobile} onClose={()=>setSelectedId(null)}/>
               </div>
             )}
           </div>
