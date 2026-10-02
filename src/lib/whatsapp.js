@@ -16,7 +16,7 @@ function openChat(rawPhone, msg) {
 export function sendWhatsApp({ student, date, sessionName, status, reason, teacherName }) {
   const saludo = student.tutor_name ? `Buen día, ${student.tutor_name}:` : "Buen día, estimado padre de familia:";
   const fmtDate = longDate(date);
-  const firma = `Atentamente,\n${teacherName ? teacherName + "\n" : ""}_CBTIS 179_`;
+  const firma = teacherName ? `Atentamente,\n${teacherName}` : "Atentamente.";
 
   const cuerpo = {
     absent:  `Le informamos que su hijo(a) *${student.name}* *no asistió* a la clase de *${sessionName}* el día *${fmtDate}*.\n\nSi la inasistencia tuvo un motivo justificado, le pedimos hacer llegar el comprobante para registrarla como falta justificada.`,
@@ -58,7 +58,7 @@ export function sendAttendanceLink({ student, sessionName }) {
   const tutorName = student.tutor_name ? `, ${student.tutor_name}` : "";
   const link = `${window.location.origin}/?padre=${student.parent_token}`;
 
-  const msg = `Estimado tutor${tutorName}:\n\nAquí puede consultar la asistencia de *${student.name}* en *${sessionName}* en cualquier momento:\n${link}\n\n_CBTIS 179 — AppProf_`;
+  const msg = `Estimado tutor${tutorName}:\n\nAquí puede consultar la asistencia de *${student.name}* en *${sessionName}* en cualquier momento:\n${link}`;
 
   const url = `https://wa.me/${fullPhone}?text=${encodeURIComponent(msg)}`;
   window.open(url, "_blank");
