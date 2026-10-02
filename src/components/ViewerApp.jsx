@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { sb } from "../lib/supabase";
 import { C, STATUS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty } from "./Shared";
-import * as XLSX from "xlsx";
 
 function pctColor(p) {
   if (p === null) return C.muted;
@@ -175,7 +174,8 @@ function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, se
     return matchSearch && matchStatus;
   });
 
-  function exportXlsx() {
+  async function exportXlsx() {
+    const XLSX = await import("xlsx");
     const header = ["Alumno","Grupo","Docente","Estado","Motivo"];
     const dataRows = filtered.map(r => [r.student.name, r.sessionName, r.ownerName, STATUS[r.status]?.label||r.status, r.reason||""]);
     const wb = XLSX.utils.book_new();

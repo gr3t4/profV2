@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { sb } from "../lib/supabase";
 import { C } from "../lib/constants";
 import { Empty } from "./Shared";
-import * as XLSX from "xlsx";
 
 const RISK_ATT = 80; // % asistencia mínima
 
@@ -75,7 +74,7 @@ export default function ReportModule({ sessionId, students }) {
     });
   }
 
-  function exportReport() {
+  async function exportReport() {
     const header = ["Alumno","% Asistencia","Clases","Faltas","Estado"];
     const rows = sorted(report).map(r => [
       r.student.name,
@@ -84,6 +83,7 @@ export default function ReportModule({ sessionId, students }) {
       r.attAbsent,
       {ok:"Al corriente",warning:"En riesgo",danger:"Riesgo alto"}[r.risk],
     ]);
+    const XLSX = await import("xlsx");
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header,...rows]), "Reporte de grupo");
     XLSX.writeFile(wb, "reporte_asistencia_grupo.xlsx");

@@ -1,13 +1,27 @@
 import { C } from "./lib/constants";
 import { useAuth } from "./hooks/useAuth";
-import AuthScreen from "./components/AuthScreen";
-import AdminPanel from "./components/AdminPanel";
-import TeacherApp from "./components/TeacherApp";
-import ViewerApp from "./components/ViewerApp";
-import ParentView from "./components/ParentView";
+import { lazy, Suspense } from "react";
+// Cada pantalla se descarga solo cuando se necesita, para que la app abra más rápido.
+const AuthScreen = lazy(() => import("./components/AuthScreen"));
+const AdminPanel = lazy(() => import("./components/AdminPanel"));
+const TeacherApp = lazy(() => import("./components/TeacherApp"));
+const ViewerApp  = lazy(() => import("./components/ViewerApp"));
+const ParentView = lazy(() => import("./components/ParentView"));
 import InstallBanner from "./components/InstallBanner";
 
+function Loading() {
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <span style={{color:C.muted,fontFamily:"Inter,sans-serif",fontSize:14}}>Cargando...</span>
+    </div>
+  );
+}
+
 export default function App() {
+  return <Suspense fallback={<Loading/>}><Screens/></Suspense>;
+}
+
+function Screens() {
   const { user, loading, connError, retry, login, register, logout } = useAuth();
 
   // Link público de solo lectura para padres/tutores (?padre=<token>) — no
@@ -15,11 +29,7 @@ export default function App() {
   const parentToken = new URLSearchParams(window.location.search).get("padre");
   if (parentToken) return <ParentView token={parentToken}/>;
 
-  if (loading) return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <span style={{color:C.muted,fontFamily:"Inter,sans-serif",fontSize:14}}>Cargando...</span>
-    </div>
-  );
+  if (loading) return <Loading/>;
 
   if (!user && connError) return (
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",gap:14,alignItems:"center",justifyContent:"center",padding:24,textAlign:"center"}}>

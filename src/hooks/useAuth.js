@@ -22,6 +22,22 @@ async function withRetry(fn, attempts = 3, delayMs = 1200) {
   }
 }
 
+// Perfil guardado en el dispositivo para abrir la app al instante; se vuelve a
+// verificar contra el servidor en segundo plano en cada apertura.
+const PROFILE_CACHE_KEY = "appprof_profile";
+function readCachedProfile(userId) {
+  try {
+    const p = JSON.parse(localStorage.getItem(PROFILE_CACHE_KEY) || "null");
+    return p && p.id === userId ? p : null;
+  } catch { return null; }
+}
+function writeCachedProfile(p) {
+  try {
+    if (p) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p));
+    else localStorage.removeItem(PROFILE_CACHE_KEY);
+  } catch { /* almacenamiento no disponible */ }
+}
+
 // Sesión real de Supabase Auth + perfil (public.profiles) del usuario actual.
 export function useAuth() {
   const [user, setUser] = useState(null); // {id, username, name, role}
@@ -30,6 +46,7 @@ export function useAuth() {
 
   const loadProfile = useCallback(async (authUser) => {
     if (!authUser) {
+      writeCachedProfile(null);
       setUser(null);
       setConnError(false);
       return;
@@ -44,13 +61,16 @@ export function useAuth() {
       if (error && !error.code) throw error;
       if (error || !profile || profile.active === false) {
         // Respuesta real del servidor: el perfil no existe o está desactivado.
+        writeCachedProfile(null);
         await sb.auth.signOut().catch(() => {});
         setUser(null);
         setConnError(false);
         return;
       }
       setConnError(false);
-      setUser({ id: authUser.id, username: profile.username, name: profile.name, role: profile.role });
+      const u = { id: authUser.id, username: profile.username, name: profile.name, role: profile.role };
+      writeCachedProfile(u);
+      setUser(prev => (prev && JSON.stringify(prev) === JSON.stringify(u)) ? prev : u);
     } catch {
       // Red caída o timeout tras reintentos: NO es una sesión inválida, así que no
       // cerramos sesión ni tocamos `user` — solo avisamos para mostrar un reintento
@@ -65,9 +85,18 @@ export function useAuth() {
     // (evento INITIAL_SESSION), así que basta con esta única fuente de verdad —
     // llamar además a getSession() por separado duplicaba la carga del perfil y
     // producía una condición de carrera entre ambas llamadas.
-    const { data: sub } = sb.auth.onAuthStateChange(async (_event, session) => {
-      await loadProfile(session?.user ?? null);
-      if (active) setLoading(false);
+    const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
+      const authUser = session?.user ?? null;
+      // Arranque instantáneo: si ya hay perfil guardado de este usuario, se
+      // muestra la app de inmediato y el perfil se verifica en segundo plano.
+      const cached = authUser ? readCachedProfile(authUser.id) : null;
+      if (cached && active) { setUser(prev => prev ?? cached); setLoading(false); }
+      // Supabase recomienda no esperar otras llamadas de Supabase dentro de este
+      // callback (puede bloquear el cliente de auth), así que se difiere.
+      setTimeout(async () => {
+        await loadProfile(authUser);
+        if (active) setLoading(false);
+      }, 0);
     });
 
     return () => {

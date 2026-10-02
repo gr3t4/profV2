@@ -10,7 +10,6 @@ import TutorModal from "./TutorModal";
 import TutoriaModal from "./TutoriaModal";
 import { sendWhatsApp, sendTutoriaReport } from "../lib/whatsapp";
 import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStudents";
-import * as XLSX from "xlsx";
 export default function TeacherApp({ user, onLogout }) {
   const [sessions, setSessions]         = useState([]);
   const [activeSession, setActiveSess]  = useState(null);
@@ -181,6 +180,7 @@ export default function TeacherApp({ user, onLogout }) {
   }
 
   async function handleExport(type) {
+    const XLSX = await import("xlsx");
     const sessName = activeSession?.name || "sesion";
     const dateList = [...allDates].sort();
     const { data:allAtt } = await sb.from("attendance").select("student_id,date,status,reason").eq("session_id", activeSession.id);

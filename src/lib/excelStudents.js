@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 
 const HEADER_ALIASES = {
   name: ["nombre", "alumno", "estudiante", "name", "student"],
@@ -23,6 +22,7 @@ function matchHeader(cell) {
 // automáticamente si la primera fila es un encabezado (Nombre/Tutor/Teléfono en
 // cualquier orden) o si es simplemente una lista de nombres en la columna A.
 export async function parseStudentsExcel(file) {
+  const XLSX = await import("xlsx");
   const wb = XLSX.read(await file.arrayBuffer());
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
   if (!rows.length) return [];
@@ -51,7 +51,8 @@ export async function parseStudentsExcel(file) {
     .filter(Boolean);
 }
 
-export function downloadStudentsTemplate() {
+export async function downloadStudentsTemplate() {
+  const XLSX = await import("xlsx");
   const rows = [
     ["Nombre", "Tutor", "Teléfono"],
     ["Juan Pérez", "María Pérez", "3312345678"],
