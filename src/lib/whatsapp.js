@@ -32,7 +32,14 @@ export function sendWhatsApp({ student, date, sessionName, status, reason, teach
 export function sendTutoriaReport({ phone, contactName, date, sessionName, absentStudents, totalStudents, teacherName }) {
   const saludo = contactName ? `Buen día, ${contactName}:` : "Buen día, área de Tutorías:";
   const lista = absentStudents.map((s, i) => `${i + 1}. ${s.name}`).join("\n");
-  const msg = `${saludo}\n\nLe comparto el reporte de inasistencias de *${sessionName}* del día *${longDate(date)}*:\n\n${lista}\n\nTotal: *${absentStudents.length}* falta(s) de ${totalStudents} alumnos.\n\nDocente: ${teacherName || "—"}\n_CBTIS 179 — AppProf_`;
+  const msg =
+    `${saludo}\n\n` +
+    `Le informo los alumnos que tuvieron *falta* en mi clase:\n\n` +
+    `👨‍🏫 *Docente:* ${teacherName || "—"}\n` +
+    `📚 *Materia / grupo:* ${sessionName}\n` +
+    `📅 *Fecha:* ${longDate(date)}\n\n` +
+    `❌ *Alumnos con falta (${absentStudents.length} de ${totalStudents}):*\n${lista}\n\n` +
+    `Gracias por su apoyo.\n_CBTIS 179 — AppProf_`;
   return openChat(phone, msg);
 }
 
