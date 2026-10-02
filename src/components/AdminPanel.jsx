@@ -50,6 +50,13 @@ export default function AdminPanel({ user, onLogout }) {
     showToast(!cur ? "✅ Activado" : "🚫 Desactivado");
   }
 
+  async function setViewerTurno(uid, turno) {
+    const { error } = await sb.from("profiles").update({ turno }).eq("id", uid);
+    if (error) { showToast("❌ " + error.message); return; }
+    setUsers(p => p.map(u => u.id===uid ? {...u, turno} : u));
+    showToast("✅ Turno actualizado");
+  }
+
   async function deleteUser(uid, uname) {
     if (!window.confirm(`¿Eliminar "${uname}"?`)) return;
     const res = await callAdminUsers("delete", { userId: uid });
@@ -235,6 +242,14 @@ export default function AdminPanel({ user, onLogout }) {
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                       <RoleBadge role={u.role}/><StatusBadge active={u.active!==false}/>
+                      {u.role==="viewer"&&(
+                        <select className="inp" value={u.turno||""} onChange={e=>setViewerTurno(u.id,e.target.value||null)} title="Turno de Prefectura"
+                          style={{width:"auto",padding:"5px 8px",fontSize:12,cursor:"pointer"}}>
+                          <option value="">Todos los turnos</option>
+                          <option value="matutino">🌅 Matutino</option>
+                          <option value="vespertino">🌇 Vespertino</option>
+                        </select>
+                      )}
                       <button className="btn" onClick={()=>viewUserSessions(u.id,u.name)} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>📚</button>
                       <button className="btn" onClick={()=>{setEditPassTarget({id:u.id,name:u.name,username:u.username});setEditPassVal({new1:"",new2:""});setEditPassErr("");}} style={{background:`${C.purple}22`,color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}} title="Cambiar contraseña">🔑</button>
                       <button className="btn" onClick={()=>toggleUserActive(u.id,u.active!==false)} style={{background:u.active===false?`${C.success}22`:`${C.warning}22`,color:u.active===false?C.success:C.warning,border:`1px solid ${u.active===false?C.success:C.warning}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>{u.active===false?"Activar":"Desactivar"}</button>

@@ -13,6 +13,11 @@ export const STATUS = {
   pending: { label:"Sin reg.",    icon:"⏳", color:C.muted,   short:"-", bg:"#64748b22" },
 };
 
+export const TURNOS = {
+  matutino:   { label:"Matutino",   icon:"🌅" },
+  vespertino: { label:"Vespertino", icon:"🌇" },
+};
+
 export const today   = () => new Date().toISOString().split("T")[0];
 export const fmtDate = (d) => new Date(d+"T12:00:00").toLocaleDateString("es-MX",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
 export const fmtDT   = (iso) => new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});

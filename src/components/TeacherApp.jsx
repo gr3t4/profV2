@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { sb } from "../lib/supabase";
-import { C, STATUS, today, fmtDate } from "../lib/constants";
+import { C, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Toast, Empty, AddStudentInline } from "./Shared";
 import JustifyModal from "./JustifyModal";
 import ExportModal from "./ExportModal";
@@ -27,6 +27,7 @@ export default function TeacherApp({ user, onLogout }) {
   const [showNewSess, setShowNewSess]   = useState(false);
   const [newSessName, setNewSessName]   = useState("");
   const [newSessDate, setNewSessDate]   = useState(today());
+  const [newSessTurno, setNewSessTurno] = useState("matutino");
   const [toast, setToast]               = useState(null);
   const [saving, setSaving]             = useState(false);
   const [saveError, setSaveError]       = useState(false);
@@ -131,9 +132,19 @@ export default function TeacherApp({ user, onLogout }) {
 
   async function createSession() {
     if (!newSessName.trim()) return;
-    const { data, error } = await sb.from("sessions").insert({ owner_id:user.id, name:newSessName.trim(), date:newSessDate }).select().single();
+    const { data, error } = await sb.from("sessions").insert({ owner_id:user.id, name:newSessName.trim(), date:newSessDate, turno:newSessTurno }).select().single();
     if (error) { showToast("❌ " + error.message); return; }
     setSessions(p => [data,...p]); setShowNewSess(false); setNewSessName(""); setNewSessDate(today()); showToast("✅ Creada");
+  }
+  // Turno del grupo: decide qué Prefectura (matutino o vespertino) lo ve
+  async function setTurno(turno) {
+    if (!activeSession || activeSession.turno === turno) return;
+    const { error } = await sb.from("sessions").update({ turno }).eq("id", activeSession.id);
+    if (error) { showToast("❌ " + error.message); return; }
+    const updated = { ...activeSession, turno };
+    setActiveSess(updated);
+    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
+    showToast(`${TURNOS[turno].icon} Prefectura ${TURNOS[turno].label.toLowerCase()}`);
   }
   async function deleteSession(id) { await sb.from("sessions").delete().eq("id", id); setSessions(p => p.filter(s => s.id !== id)); showToast("🗑️ Eliminada"); }
 
@@ -326,6 +337,9 @@ export default function TeacherApp({ user, onLogout }) {
                 <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
                   <input className="inp" placeholder="Nombre (ej. Matemáticas 3A)" value={newSessName} onChange={e=>setNewSessName(e.target.value)} style={{flex:2,minWidth:200}}/>
                   <input className="inp" type="date" value={newSessDate} onChange={e=>setNewSessDate(e.target.value)} style={{flex:1}}/>
+                  <select className="inp" value={newSessTurno} onChange={e=>setNewSessTurno(e.target.value)} style={{flex:1,minWidth:150,cursor:"pointer"}} title="Prefectura que verá este grupo">
+                    {Object.entries(TURNOS).map(([k,t])=><option key={k} value={k}>{t.icon} Prefectura {t.label.toLowerCase()}</option>)}
+                  </select>
                   <button className="btn" onClick={createSession} style={{background:C.success,color:"#fff",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:600,fontFamily:"inherit"}}>Crear</button>
                   <button className="btn" onClick={()=>setShowNewSess(false)} style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px",fontSize:14,fontFamily:"inherit"}}>Cancelar</button>
                 </div>
@@ -337,7 +351,7 @@ export default function TeacherApp({ user, onLogout }) {
                   <div key={s.id} className="row-hover" onClick={()=>selectSession(s)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:`slideIn .3s ease both`,animationDelay:`${i*.05}s`}}>
                     <div style={{display:"flex",alignItems:"center",gap:16}}>
                       <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${C.accent}22,${C.purple}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📚</div>
-                      <div><div style={{fontWeight:600,fontSize:15}}>{s.name}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>📅 {s.date}</div></div>
+                      <div><div style={{fontWeight:600,fontSize:15}}>{s.name}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>📅 {s.date}{s.turno&&<span style={{marginLeft:8,color:C.gold}}>{TURNOS[s.turno].icon} {TURNOS[s.turno].label}</span>}</div></div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:10}}>
                       <span style={{color:C.accent,fontSize:13}}>Abrir →</span>
@@ -355,6 +369,22 @@ export default function TeacherApp({ user, onLogout }) {
           <div style={{animation:"fadeUp .4s ease both"}}>
             {/* Date panel */}
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"16px 18px",marginBottom:16}}>
+              {/* Prefectura (turno) del grupo */}
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
+                <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1}}>PREFECTURA</div>
+                <div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:3,gap:3,flex:"1 1 220px"}}>
+                  {Object.entries(TURNOS).map(([k,t])=>{
+                    const on = activeSession.turno===k;
+                    return (
+                      <button key={k} className="btn" disabled={isViewer} onClick={()=>setTurno(k)}
+                        style={{flex:1,background:on?C.gold:"transparent",color:on?"#1a1200":C.muted,borderRadius:8,padding:"7px 8px",fontSize:13,fontWeight:on?700:500,fontFamily:"inherit",minHeight:34}}>
+                        {t.icon} {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!activeSession.turno&&<div style={{fontSize:11,color:C.warning,flexBasis:"100%"}}>⚠️ Elige el turno para que lo vea la Prefectura correcta.</div>}
+              </div>
               <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1,marginBottom:12}}>SELECTOR DE FECHA</div>
               {/* Fecha activa + horas + estado de guardado */}
               <div style={{display:"flex",gap:10,alignItems:"flex-end",marginBottom:14,flexWrap:"wrap"}}>

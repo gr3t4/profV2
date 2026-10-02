@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { sb } from "../lib/supabase";
-import { C, STATUS, today, fmtDate } from "../lib/constants";
+import { C, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty } from "./Shared";
 import ViewerReports from "./ViewerReports";
 
@@ -73,7 +73,7 @@ function GroupCard({ session, isActive, onClick }) {
         <Ring pct={pct} size={52} stroke={5}/>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontWeight:600,fontSize:13,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{session.name}</div>
-          <div style={{color:C.muted,fontSize:11,marginTop:2}}>👤 {session.ownerName}</div>
+          <div style={{color:C.muted,fontSize:11,marginTop:2}}>👤 {session.ownerName}{!session.turno&&<span style={{color:C.warning,marginLeft:6}}>· sin turno</span>}</div>
           <div style={{display:"flex",gap:8,marginTop:5,fontSize:11,flexWrap:"wrap"}}>
             <span style={{color:C.success}}>✅{counts.present}</span>
             <span style={{color:C.late}}>🕐{counts.late}</span>
@@ -268,7 +268,7 @@ export default function ViewerApp({ user, onLogout }) {
   async function loadAll(date) {
     setLoading(true);
     const [{ data: sessData }, { data: studData }, { data: attData }] = await Promise.all([
-      sb.from("sessions").select("id,name,date,owner_id,owner:profiles(id,name)").order("name"),
+      sb.from("sessions").select("id,name,date,turno,owner_id,owner:profiles(id,name)").order("name"),
       sb.from("students").select("id,name,session_id"),
       sb.from("attendance").select("session_id,student_id,status,reason").eq("date", date),
     ]);
@@ -280,7 +280,9 @@ export default function ViewerApp({ user, onLogout }) {
     const attByStudent = {};
     (attData||[]).forEach(a => { attByStudent[a.student_id] = a; });
 
-    const enriched = (sessData||[]).map(s => {
+    // Cada Prefectura ve los grupos de su turno y los que aún no tienen turno asignado.
+    const mine = (sessData||[]).filter(s => !user.turno || !s.turno || s.turno === user.turno);
+    const enriched = mine.map(s => {
       const studs = studentsBySession[s.id] || [];
       const counts = { present:0, late:0, excused:0, absent:0, pending:0 };
       const attendance = {};
@@ -305,7 +307,7 @@ export default function ViewerApp({ user, onLogout }) {
     (async () => { await loadAll(selectedDate); })();
     const iv = setInterval(() => { loadAll(selectedDate); }, 60000);
     return () => clearInterval(iv);
-  }, [selectedDate]);
+  }, [selectedDate, user.turno]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = sessions.find(s => s.id === selectedId) || null;
 
@@ -357,7 +359,7 @@ export default function ViewerApp({ user, onLogout }) {
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
             <img src="/dgti-logo.png" alt="CBTIS 179" style={{height:24,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
-            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:.5,flexShrink:0}}>PREFECTURA</span>
+            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:.5,flexShrink:0}}>PREFECTURA{user.turno?` · ${TURNOS[user.turno].label.toUpperCase()}`:""}</span>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
             {lastUpdate&&<span className="hide-mobile" style={{fontSize:11,color:C.muted}}>🔄 {lastUpdate.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</span>}
