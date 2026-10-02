@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { sb } from "../lib/supabase";
 import { C, STATUS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty } from "./Shared";
+import ViewerReports from "./ViewerReports";
 
 // true en pantallas angostas (celular)
 function useIsMobile(bp = 760) {
@@ -375,7 +376,7 @@ export default function ViewerApp({ user, onLogout }) {
 
       <div className="tabs-scroll" style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 8px"}}>
         <div style={{maxWidth:1400,margin:"0 auto",display:"flex",gap:4,minWidth:"max-content"}}>
-          {[["grupos","📚 Grupos"],["ausencias",`🚨 Faltas y retardos${absenceRows.length?` (${absenceRows.length})`:""}`]].map(([id,label])=>(
+          {[["grupos","📚 Grupos"],["ausencias",`🚨 Faltas y retardos${absenceRows.length?` (${absenceRows.length})`:""}`],["reportes","📊 Reportes"]].map(([id,label])=>(
             <button key={id} className="btn" onClick={()=>setTab(id)}
               style={{background:"none",color:tab===id?C.accent:C.muted,borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",padding:"12px 14px",fontSize:14,fontFamily:"inherit",fontWeight:tab===id?600:400,whiteSpace:"nowrap",transition:"all .2s"}}>
               {label}
@@ -388,9 +389,11 @@ export default function ViewerApp({ user, onLogout }) {
 
         <div style={{marginBottom:14}}>
           <h2 style={{fontFamily:"'Sora',sans-serif",fontSize:isMobile?18:20,fontWeight:800}}>
-            {tab==="grupos" ? "Monitor de asistencia" : "Informe de faltas y retardos"}
+            {tab==="grupos" ? "Monitor de asistencia" : tab==="ausencias" ? "Informe de faltas y retardos" : "Reportes de asistencia"}
           </h2>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
+          {tab==="reportes" ? (
+            <p style={{color:C.muted,fontSize:12,marginTop:4}}>Genera el reporte mensual por grupo o el historial de un alumno, y descárgalo en Excel.</p>
+          ) : <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
             <input type="date" className="inp" value={selectedDate} onChange={e=>{ if(e.target.value){ setSelectedDate(e.target.value); setSelectedId(null); } }}
               style={{width:"auto",flex:"0 1 180px",padding:"8px 10px"}}/>
             {selectedDate!==today() && (
@@ -400,7 +403,7 @@ export default function ViewerApp({ user, onLogout }) {
               </button>
             )}
             <span style={{color:C.muted,fontSize:12}}>{fmtDate(selectedDate)} · {sessions.length} grupos</span>
-          </div>
+          </div>}
         </div>
 
         {!loading && tab==="grupos" && !(isMobile && selected) && (
@@ -450,6 +453,8 @@ export default function ViewerApp({ user, onLogout }) {
 
         {loading ? (
           <div style={{textAlign:"center",padding:"60px 0",color:C.muted,fontSize:14}}>Cargando...</div>
+        ) : tab==="reportes" ? (
+          <ViewerReports sessions={sessions}/>
         ) : tab==="ausencias" ? (
           <AbsenceReport rows={absenceRows} selectedDate={selectedDate} search={reportSearch} setSearch={setReportSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter}/>
         ) : (
