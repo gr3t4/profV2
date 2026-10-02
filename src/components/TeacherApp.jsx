@@ -499,16 +499,16 @@ export default function TeacherApp({ user, onLogout }) {
             </div>
             {/* Student list */}
             {students.length===0?<Empty icon="👥" msg="No hay alumnos. Importa un Excel o agrégalos manualmente."/>:(
-              <div style={{display:"grid",gap:8}}>
+              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8}}>
                 {filteredStudents.map((s,i)=>{
                   const st = getStatus(s.id); const cfg = STATUS[st]; const reason = attendance[s.id]?.reason||"";
                   return(
-                    <div key={s.id} className="row-hover" style={{background:C.card,border:`1px solid ${cfg.color}44`,borderRadius:12,padding:"12px 14px",animation:`slideIn .3s ease both`,animationDelay:`${i*.025}s`}}>
+                    <div key={s.id} className="row-hover" style={{background:C.card,border:`1px solid ${cfg.color}44`,borderRadius:12,padding:"12px 10px",minWidth:0,animation:`slideIn .3s ease both`,animationDelay:`${i*.025}s`}}>
                       {/* Fila superior: avatar + nombre + botones secundarios */}
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                         <div style={{width:36,height:36,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,background:cfg.bg,color:cfg.color,flexShrink:0}}>{s.name.charAt(0).toUpperCase()}</div>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                          <div style={{fontWeight:600,fontSize:14,lineHeight:1.25,overflowWrap:"anywhere"}}>{s.name}</div>
                           <div style={{fontSize:11,color:cfg.color,display:"flex",alignItems:"center",gap:4,marginTop:1}}>
                             <span>{cfg.icon}</span><span>{cfg.label}</span>
                             {st==="excused"&&reason&&<span style={{color:C.muted,marginLeft:4}}>· {reason.length>25?reason.substring(0,25)+"…":reason}</span>}
