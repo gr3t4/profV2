@@ -29,17 +29,22 @@ export function sendWhatsApp({ student, date, sessionName, status, reason, teach
 }
 
 // MENSAJE PARA TUTORÍAS — un solo reporte con todos los alumnos que faltaron en la fecha.
-export function sendTutoriaReport({ phone, contactName, date, sessionName, absentStudents, totalStudents, teacherName }) {
+// Se arma aquí y el docente lo puede editar antes de enviarlo.
+export function buildTutoriaMessage({ contactName, date, sessionName, absentStudents, totalStudents, teacherName }) {
   const saludo = contactName ? `Buen día, ${contactName}:` : "Buen día, área de Tutorías:";
   const lista = absentStudents.map((s, i) => `${i + 1}. ${s.name}`).join("\n");
-  const msg =
+  return (
     `${saludo}\n\n` +
     `Le informo los alumnos que tuvieron *falta* en mi clase:\n\n` +
     `👨‍🏫 *Docente:* ${teacherName || "—"}\n` +
     `📚 *Materia / grupo:* ${sessionName}\n` +
     `📅 *Fecha:* ${longDate(date)}\n\n` +
     `❌ *Alumnos con falta (${absentStudents.length} de ${totalStudents}):*\n${lista}\n\n` +
-    `Gracias por su apoyo.\n_CBTIS 179 — AppProf_`;
+    `Gracias por su apoyo.\n_CBTIS 179 — AppProf_`
+  );
+}
+
+export function sendTutoriaMessage(phone, msg) {
   return openChat(phone, msg);
 }
 

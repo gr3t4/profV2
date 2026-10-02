@@ -8,7 +8,7 @@ import ImportPreviewModal from "./ImportPreviewModal";
 import ReportModule from "./ReportModule";
 import TutorModal from "./TutorModal";
 import TutoriaModal from "./TutoriaModal";
-import { sendWhatsApp, sendTutoriaReport } from "../lib/whatsapp";
+import { sendWhatsApp, buildTutoriaMessage } from "../lib/whatsapp";
 import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStudents";
 export default function TeacherApp({ user, onLogout }) {
   const [sessions, setSessions]         = useState([]);
@@ -240,18 +240,14 @@ export default function TeacherApp({ user, onLogout }) {
     showToast(`📲 ${ausentes.length} mensaje(s) a papás`);
   }
 
-  // Aviso a Tutorías: un solo reporte con la lista de faltas del día
-  function sendTutoria(sess = activeSession) {
-    const ausentes = students.filter(s=>getStatus(s.id)==="absent");
-    if(!ausentes.length){showToast("⚠️ No hay faltas en esta fecha");return;}
-    sendTutoriaReport({ phone:sess.tutoria_phone, contactName:sess.tutoria_name, date:selectedDate, sessionName:sess.name,
-      absentStudents:ausentes, totalStudents:students.length, teacherName:user.name });
-    setShowTutoria(false);
-    showToast("📲 Reporte a Tutorías abierto");
+  // Aviso a Tutorías: un solo reporte (editable) con docente, materia y alumnos con falta
+  function buildTutoria(contactName) {
+    return buildTutoriaMessage({ contactName, date:selectedDate, sessionName:activeSession.name,
+      absentStudents:students.filter(s=>getStatus(s.id)==="absent"), totalStudents:students.length, teacherName:user.name });
   }
   function notifyTutoria() {
-    if(!activeSession.tutoria_phone){ setShowTutoria(true); return; }
-    sendTutoria();
+    if(!students.some(s=>getStatus(s.id)==="absent")){showToast("⚠️ No hay faltas en esta fecha");return;}
+    setShowTutoria(true);
   }
   function saveTutoriaContact(updated) {
     setActiveSess(updated);
@@ -280,7 +276,7 @@ export default function TeacherApp({ user, onLogout }) {
       {toast && <Toast msg={toast}/>}
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
-      {showTutoria && activeSession && <TutoriaModal session={activeSession} absentCount={counts.absent} onSave={saveTutoriaContact} onSend={sendTutoria} onClose={()=>setShowTutoria(false)}/>}
+      {showTutoria && activeSession && <TutoriaModal session={activeSession} absentCount={counts.absent} buildMessage={buildTutoria} onSave={saveTutoriaContact} onSent={()=>{setShowTutoria(false);showToast("📲 Reporte a Tutorías abierto");}} onClose={()=>setShowTutoria(false)}/>}
       {tutorTarget && <TutorModal student={tutorTarget} sessionName={activeSession?.name} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
       {importPreview && <ImportPreviewModal rows={importPreview} existingNames={students.map(s=>s.name)} onConfirm={confirmImport} onClose={()=>setImportPreview(null)}/>}
 
