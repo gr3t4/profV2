@@ -40,7 +40,7 @@ export function buildTutoriaMessage({ contactName, date, sessionName, absentStud
     `📚 *Materia / grupo:* ${sessionName}\n` +
     `📅 *Fecha:* ${longDate(date)}\n\n` +
     `❌ *Alumnos con falta (${absentStudents.length} de ${totalStudents}):*\n${lista}\n\n` +
-    `Gracias por su apoyo.\n_CBTIS 179 — AppProf_`
+    `Gracias por su apoyo.`
   );
 }
 
