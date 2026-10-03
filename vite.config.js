@@ -23,8 +23,9 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'supabase-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
-              networkTimeoutSeconds: 8,
+              // Guarda una semana de consultas para poder abrir los grupos sin internet
+              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              networkTimeoutSeconds: 6,
             },
           },
         ],

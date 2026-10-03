@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { sb, fetchAll } from "../lib/supabase";
-import { C, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
+import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty } from "./Shared";
 import ViewerReports from "./ViewerReports";
 
@@ -350,14 +350,14 @@ export default function ViewerApp({ user, onLogout }) {
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Inter',sans-serif",color:C.text}}>
       <GlobalStyles/>
-      <Glow top="-15%" right="-5%" color="27,58,138" size="40vw"/>
-      <Glow bottom="-10%" left="-5%" color="200,160,32" size="35vw"/>
+      <Glow top="-15%" right="-5%" color="0,126,103" size="40vw"/>
+      <Glow bottom="-10%" left="-5%" color="157,36,73" size="35vw"/>
 
-      <div style={{height:3,background:"linear-gradient(90deg,#b71c1c 33%,#1b3a8a 66%,#c8a020 100%)"}}/>
+      <div style={{height:3,background:BRAND.stripe}}/>
       <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 14px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
         <div style={{maxWidth:1400,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-            <img src="/dgti-logo.png" alt="CBTIS 179" style={{height:24,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
+            <img src={BRAND.logo} alt={BRAND.name} style={{height:28,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
             <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:.5,flexShrink:0}}>PREFECTURA{user.turno?` · ${TURNOS[user.turno].label.toUpperCase()}`:""}</span>
           </div>

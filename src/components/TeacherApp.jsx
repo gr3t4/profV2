@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { sb, fetchAll } from "../lib/supabase";
-import { C, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
+import { queueAttendance, queueHours, flush, pendingCount, pendingFor, pendingDates, onPendingChange } from "../lib/offlineQueue";
+import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Toast, Empty, AddStudentInline } from "./Shared";
 import JustifyModal from "./JustifyModal";
 import ExportModal from "./ExportModal";
@@ -32,6 +33,8 @@ export default function TeacherApp({ user, onLogout }) {
   const [saving, setSaving]             = useState(false);
   const [saveError, setSaveError]       = useState(false);
   const [lastSaved, setLastSaved]       = useState(null);
+  const [pending, setPending]           = useState(() => pendingCount()); // marcas guardadas en el celular sin enviar
+  const [online, setOnline]             = useState(() => navigator.onLine !== false);
   const [justifyTarget, setJustifyTarget] = useState(null);
   const [showExport, setShowExport]     = useState(false);
   const [tutorTarget, setTutorTarget]   = useState(null);
@@ -47,16 +50,36 @@ export default function TeacherApp({ user, onLogout }) {
 
   useEffect(() => { (async () => { await loadSessions(); })(); }, []);
 
+  // Sincronización de marcas guardadas sin internet
+  useEffect(() => {
+    const off = onPendingChange(setPending);
+    const sync = async () => {
+      if (!pendingCount()) return;
+      const r = await flush();
+      if (r.sent) { setLastSaved(new Date()); setSaveError(false); }
+      if (r.rejected) { setSaveError(true); showToast("❌ No se guardó: " + r.rejected); }
+    };
+    const goOnline  = () => { setOnline(true); sync(); };
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    const iv = setInterval(sync, 20000);
+    sync();
+    return () => { off(); window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); clearInterval(iv); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function selectSession(s) {
     setActiveSess(s);
     const { data:studs } = await sb.from("students").select("*").eq("session_id", s.id).order("created_at");
     setStudents(studs || []);
     const { data:attRows } = await fetchAll(() => sb.from("attendance").select("date").eq("session_id", s.id).order("id"));
-    const dates = [...new Set((attRows||[]).map(r=>r.date))].sort().reverse();
+    const pend = pendingDates(s.id);
+    const dates = [...new Set([...(attRows||[]).map(r=>r.date), ...pend.dates])].sort().reverse();
     setAllDates(dates);
     // Cargar horas por fecha
     const { data:hoursRows } = await fetchAll(() => sb.from("class_hours").select("date,hours").eq("session_id", s.id).order("date"));
     const hm = {}; (hoursRows||[]).forEach(r=>{ hm[r.date]=r.hours; });
+    Object.assign(hm, pend.hours);
     setDateHours(hm);
     const d = today(); setSelectedDate(d);
     setClassHours(hm[d] || 1);
@@ -68,6 +91,7 @@ export default function TeacherApp({ user, onLogout }) {
   async function loadAttendanceForDate(sessionId, date) {
     const { data } = await sb.from("attendance").select("student_id,status,reason").eq("session_id", sessionId).eq("date", date);
     const m = {}; (data||[]).forEach(r => { m[r.student_id] = { status:r.status, reason:r.reason||"" }; });
+    Object.assign(m, pendingFor(sessionId, date)); // lo marcado sin internet tiene prioridad
     setAttendance(m);
   }
 
@@ -78,27 +102,28 @@ export default function TeacherApp({ user, onLogout }) {
     setFilter("all");
   }
 
-  // Guarda en Supabase los registros indicados ({ id: {status, reason} }) para la fecha dada.
-  // Se llama automáticamente cada vez que se marca la asistencia.
+  // Guarda los registros indicados ({ id: {status, reason} }) para la fecha dada.
+  // Primero quedan guardados en el celular y luego se envían a Supabase; si no hay
+  // internet se envían solos cuando vuelva la conexión.
   async function persistAttendance(entries, date) {
     const ids = Object.keys(entries);
     if (!ids.length || !activeSession) return;
-    setSaving(true); setSaveError(false);
-    const upserts = ids.map(id => ({
+    queueAttendance(ids.map(id => ({
       session_id: activeSession.id, student_id: id, date,
-      status: entries[id].status,
-      reason: entries[id].reason || null,
-    }));
-    const { error } = await sb.from("attendance").upsert(upserts, { onConflict:"student_id,date" });
-    if (error) { setSaving(false); setSaveError(true); showToast("❌ No se guardó: " + error.message); return; }
+      status: entries[id].status, reason: entries[id].reason || null,
+    })));
     // Primera vez que se registra esta fecha: guardar también las horas y agregarla a la lista
     if (!allDates.includes(date)) {
       const hrs = parseFloat(classHours) || 1;
-      await sb.from("class_hours").upsert({ session_id:activeSession.id, date, hours:hrs }, { onConflict:"session_id,date" });
+      queueHours(activeSession.id, date, hrs);
       setDateHours(p => ({...p, [date]: hrs}));
       setAllDates(p => p.includes(date) ? p : [...p, date].sort().reverse());
     }
-    setSaving(false); setLastSaved(new Date());
+    setSaving(true);
+    const r = await flush();
+    setSaving(false);
+    if (r.sent) { setLastSaved(new Date()); setSaveError(false); }
+    if (r.rejected) { setSaveError(true); showToast("❌ No se guardó: " + r.rejected); }
   }
 
   // Guarda las horas de clase de la fecha activa (si la fecha ya tiene registros)
@@ -106,10 +131,10 @@ export default function TeacherApp({ user, onLogout }) {
     if (!activeSession || !allDates.includes(selectedDate)) return;
     const hrs = parseFloat(classHours) || 1;
     if (dateHours[selectedDate] === hrs) return;
-    const { error } = await sb.from("class_hours").upsert({ session_id:activeSession.id, date:selectedDate, hours:hrs }, { onConflict:"session_id,date" });
-    if (error) { showToast("❌ " + error.message); return; }
+    queueHours(activeSession.id, selectedDate, hrs);
     setDateHours(p => ({...p, [selectedDate]: hrs}));
-    showToast("💾 Horas guardadas");
+    const r = await flush();
+    showToast(r.offline ? "📴 Horas guardadas en el celular" : r.rejected ? "❌ " + r.rejected : "💾 Horas guardadas");
   }
 
   function toggleAtt(id, status) {
@@ -282,8 +307,8 @@ export default function TeacherApp({ user, onLogout }) {
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Source Sans 3',sans-serif",color:C.text,position:"relative"}}>
       <GlobalStyles/>
-      <Glow top="-15%" right="-5%" color="59,130,246" size="40vw"/>
-      <Glow bottom="-10%" left="-5%" color="139,92,246" size="35vw"/>
+      <Glow top="-15%" right="-5%" color="0,126,103" size="40vw"/>
+      <Glow bottom="-10%" left="-5%" color="157,36,73" size="35vw"/>
       {toast && <Toast msg={toast}/>}
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
@@ -291,12 +316,12 @@ export default function TeacherApp({ user, onLogout }) {
       {tutorTarget && <TutorModal student={tutorTarget} sessionName={activeSession?.name} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
       {importPreview && <ImportPreviewModal rows={importPreview} existingNames={students.map(s=>s.name)} onConfirm={confirmImport} onClose={()=>setImportPreview(null)}/>}
 
-      <div style={{height:3,background:"linear-gradient(90deg,#b71c1c 33%,#1b3a8a 66%,#c8a020 100%)"}}/>
+      <div style={{height:3,background:BRAND.stripe}}/>
       <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 14px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
         <div style={{maxWidth:980,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:52}}>
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
             {view!=="sessions"&&<button className="btn" onClick={()=>{if(view==="student-history"){setView("attendance");setSearchResult(null);setSearchQuery("");}else{setView("sessions");setActiveSess(null);}}} style={{background:"none",color:C.muted,fontSize:20,padding:"4px 6px",flexShrink:0}}>←</button>}
-            <img src="/dgti-logo.png" alt="CBTIS 179" style={{height:24,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
+            <img src={BRAND.logo} alt={BRAND.name} style={{height:28,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
             {activeSession&&view!=="sessions"&&<span className="hide-mobile" style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>/ {activeSession.name}</span>}
           </div>
@@ -401,15 +426,21 @@ export default function TeacherApp({ user, onLogout }) {
                     onBlur={persistHours}
                     style={{textAlign:"center"}}/>
                 </div>
-                {!isViewer&&(
-                  <div title="La asistencia se guarda automáticamente al marcar a cada alumno"
-                    style={{alignSelf:"flex-end",flexShrink:0,borderRadius:10,padding:"10px 14px",fontSize:12,fontWeight:600,whiteSpace:"nowrap",
-                      background:saveError?`${C.danger}22`:`${C.teal}22`,
-                      color:saveError?C.danger:C.teal,
-                      border:`1px solid ${saveError?C.danger:C.teal}55`}}>
-                    {saving?"⏳ Guardando…":saveError?"⚠️ Error al guardar":lastSaved?"✅ Guardado automático":"💾 Autoguardado activo"}
-                  </div>
-                )}
+                {!isViewer&&(()=>{
+                  const st = pending>0 && !online ? ["📴 Sin internet · "+pending+" en el celular", C.warning]
+                    : pending>0 ? ["⏳ Enviando "+pending+"…", C.teal]
+                    : saving ? ["⏳ Guardando…", C.teal]
+                    : saveError ? ["⚠️ Error al guardar", C.danger]
+                    : lastSaved ? ["✅ Guardado automático", C.teal]
+                    : ["💾 Autoguardado activo", C.teal];
+                  return (
+                    <div title="La asistencia se guarda en el celular y se envía sola en cuanto hay internet"
+                      style={{alignSelf:"flex-end",flexShrink:0,borderRadius:10,padding:"10px 14px",fontSize:12,fontWeight:600,whiteSpace:"nowrap",
+                        background:`${st[1]}22`,color:st[1],border:`1px solid ${st[1]}55`}}>
+                      {st[0]}
+                    </div>
+                  );
+                })()}
               </div>
               {/* Lista desplegable de fechas guardadas */}
               {allDates.length > 0 ? (

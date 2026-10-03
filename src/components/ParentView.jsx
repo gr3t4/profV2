@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { sb } from "../lib/supabase";
-import { C, STATUS, fmtDate } from "../lib/constants";
+import { C, BRAND, STATUS, fmtDate } from "../lib/constants";
 import { GlobalStyles, Empty } from "./Shared";
 
 function pctColor(p) {
@@ -42,8 +42,7 @@ export default function ParentView({ token }) {
       <GlobalStyles/>
       <div style={{maxWidth:520,margin:"0 auto",padding:"clamp(20px,5vw,32px) clamp(16px,5vw,24px)"}}>
         <div style={{textAlign:"center",marginBottom:24}}>
-          <div style={{width:52,height:52,borderRadius:16,background:"linear-gradient(135deg,#007a5e,#005a44)",
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 10px"}}>👨‍🏫</div>
+          <img src={BRAND.logo} alt={BRAND.name} style={{height:60,objectFit:"contain",display:"block",margin:"0 auto 12px"}}/>
           <h1 style={{fontFamily:"'Sora',sans-serif",fontSize:20,color:C.text,fontWeight:800,margin:0}}>AppProf</h1>
           <div style={{color:C.muted,fontSize:12,marginTop:4}}>Consulta de asistencia para padres/tutores</div>
         </div>

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { GlobalStyles } from "./Shared";
+import { BRAND } from "../lib/constants";
 
 const T = {
   bg:"#07201a", surface:"#0c2d24", card:"#0f3529", border:"#1a5040",
-  accent:"#007a5e", light:"#00a87e", text:"#e8f5f1", muted:"#5a9e8a", danger:"#e53935",
-  grad:"linear-gradient(135deg,#007a5e,#005a44)",
+  accent:"#007E67", light:"#00a87e", text:"#e8f5f1", muted:"#5a9e8a", danger:"#e53935",
+  grad:"linear-gradient(135deg,#007E67,#005a48)",
   glow1:"rgba(0,122,94,0.10)", glow2:"rgba(0,168,126,0.07)",
 };
 
@@ -60,11 +61,9 @@ export default function AuthScreen({ onLogin, onRegister }) {
   return (
     <Screen>
       <div style={{textAlign:"center",marginBottom:28}}>
-        <div style={{width:58,height:58,borderRadius:16,background:"linear-gradient(135deg,#007a5e,#005a44)",
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,
-          margin:"0 auto 12px",boxShadow:"0 4px 20px rgba(0,122,94,0.4)"}}>👨‍🏫</div>
+        <img src={BRAND.logo} alt={BRAND.name} style={{height:72,objectFit:"contain",display:"block",margin:"0 auto 14px"}}/>
         <h1 style={{fontFamily:"'Sora',sans-serif",fontSize:"clamp(22px,6vw,26px)",color:T.text,fontWeight:800,margin:0}}>AppProf</h1>
-        <div style={{width:48,height:3,background:`linear-gradient(90deg,${T.accent},${T.light})`,borderRadius:2,margin:"10px auto 0"}}/>
+        <div style={{width:72,height:3,background:BRAND.stripe,borderRadius:2,margin:"10px auto 0"}}/>
       </div>
 
       {forgot ? (

@@ -1,8 +1,16 @@
+// Colores institucionales CONALEP (Guía de identidad 2023): verde Pantone 335 C #007E67,
+// guinda Pantone 7420 C #9D2449 y dorado Pantone 465 C #B38E5D.
+export const BRAND = {
+  name: "CONALEP",
+  logo: "/conalep-logo-blanco.png",
+  stripe: "linear-gradient(90deg,#9D2449 0 33%,#007E67 33% 66%,#B38E5D 66% 100%)",
+};
+
 export const C = {
   bg:"#07201a", surface:"#0c2d24", card:"#0f3529", border:"#1a5040",
-  accent:"#007a5e", success:"#00a87e", danger:"#e53935", warning:"#d29922",
+  accent:"#007E67", success:"#00a87e", danger:"#e53935", warning:"#d29922",
   text:"#e8f5f1", muted:"#5a9e8a", purple:"#00897b", teal:"#00796b",
-  gold:"#c9a227", late:"#b84a00", excused:"#0097a7",
+  gold:"#B38E5D", guinda:"#9D2449", late:"#b84a00", excused:"#0097a7",
 };
 
 export const STATUS = {

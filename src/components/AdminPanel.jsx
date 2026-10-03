@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { sb } from "../lib/supabase";
 import { callAdminUsers } from "../lib/adminUsers";
-import { C, fmtDate, fmtDT } from "../lib/constants";
+import { C, BRAND, fmtDate, fmtDT } from "../lib/constants";
 import { GlobalStyles, Glow, Toast, Empty, Pill, Avatar, StatusBadge, RoleBadge } from "./Shared";
 
 export default function AdminPanel({ user, onLogout }) {
@@ -109,8 +109,8 @@ export default function AdminPanel({ user, onLogout }) {
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Source Sans 3',sans-serif",color:C.text,position:"relative"}}>
       <GlobalStyles/>
-      <Glow top="-15%" right="-5%" color="245,158,11" size="40vw"/>
-      <Glow bottom="-10%" left="-5%" color="139,92,246" size="35vw"/>
+      <Glow top="-15%" right="-5%" color="0,126,103" size="40vw"/>
+      <Glow bottom="-10%" left="-5%" color="157,36,73" size="35vw"/>
       {toast && <Toast msg={toast}/>}
 
       {editPassTarget && (
@@ -142,12 +142,12 @@ export default function AdminPanel({ user, onLogout }) {
         </div>
       )}
 
-      <div style={{height:3,background:"linear-gradient(90deg,#b71c1c 33%,#1b3a8a 66%,#c8a020 100%)"}}/>
+      <div style={{height:3,background:BRAND.stripe}}/>
       <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 16px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
         <div style={{maxWidth:1000,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
             {tab==="user-detail"&&<button className="btn" onClick={()=>setTab("users")} style={{background:"none",color:C.muted,fontSize:20,padding:"4px 8px",flexShrink:0}}>←</button>}
-            <img src="/dgti-logo.png" alt="CBTIS 179" style={{height:24,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
+            <img src={BRAND.logo} alt={BRAND.name} style={{height:28,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
             <span style={{background:`${C.gold}22`,color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,flexShrink:0}}>ADMIN</span>
           </div>
