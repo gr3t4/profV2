@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { sb } from "../lib/supabase";
+import { sb, fetchAll } from "../lib/supabase";
 import { C, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty } from "./Shared";
 import ViewerReports from "./ViewerReports";
@@ -269,8 +269,8 @@ export default function ViewerApp({ user, onLogout }) {
     setLoading(true);
     const [{ data: sessData }, { data: studData }, { data: attData }] = await Promise.all([
       sb.from("sessions").select("id,name,date,turno,owner_id,owner:profiles(id,name)").order("name"),
-      sb.from("students").select("id,name,session_id"),
-      sb.from("attendance").select("session_id,student_id,status,reason").eq("date", date),
+      fetchAll(() => sb.from("students").select("id,name,session_id").order("id")),
+      fetchAll(() => sb.from("attendance").select("session_id,student_id,status,reason").eq("date", date).order("id")),
     ]);
 
     const studentsBySession = {};

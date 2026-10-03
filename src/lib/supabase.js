@@ -18,6 +18,19 @@ async function noCrossTabLock(_name, _acquireTimeout, fn) {
   return await fn();
 }
 
+// Supabase devuelve como máximo 1,000 filas por consulta. fetchAll pide los
+// datos por páginas hasta traerlos todos. `build` debe regresar una consulta
+// nueva (con un .order() estable) cada vez que se llama.
+export async function fetchAll(build, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await build().range(from, from + pageSize - 1);
+    if (error) return { data: rows, error };
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return { data: rows, error: null };
+  }
+}
+
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: {
     autoRefreshToken: true,

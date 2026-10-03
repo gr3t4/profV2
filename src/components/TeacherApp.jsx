@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { sb } from "../lib/supabase";
+import { sb, fetchAll } from "../lib/supabase";
 import { C, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Toast, Empty, AddStudentInline } from "./Shared";
 import JustifyModal from "./JustifyModal";
@@ -51,11 +51,11 @@ export default function TeacherApp({ user, onLogout }) {
     setActiveSess(s);
     const { data:studs } = await sb.from("students").select("*").eq("session_id", s.id).order("created_at");
     setStudents(studs || []);
-    const { data:attRows } = await sb.from("attendance").select("date").eq("session_id", s.id);
+    const { data:attRows } = await fetchAll(() => sb.from("attendance").select("date").eq("session_id", s.id).order("id"));
     const dates = [...new Set((attRows||[]).map(r=>r.date))].sort().reverse();
     setAllDates(dates);
     // Cargar horas por fecha
-    const { data:hoursRows } = await sb.from("class_hours").select("date,hours").eq("session_id", s.id);
+    const { data:hoursRows } = await fetchAll(() => sb.from("class_hours").select("date,hours").eq("session_id", s.id).order("date"));
     const hm = {}; (hoursRows||[]).forEach(r=>{ hm[r.date]=r.hours; });
     setDateHours(hm);
     const d = today(); setSelectedDate(d);
@@ -186,7 +186,7 @@ export default function TeacherApp({ user, onLogout }) {
     const query = q.trim().toLowerCase(); if (!query || !activeSession) { setSearchResult(null); return; }
     const found = students.find(s => s.name.toLowerCase().includes(query));
     if (!found) { setSearchResult({ notFound:true, query:q }); return; }
-    const { data } = await sb.from("attendance").select("date,status,reason").eq("student_id", found.id).order("date", { ascending:false });
+    const { data } = await fetchAll(() => sb.from("attendance").select("date,status,reason").eq("student_id", found.id).order("date", { ascending:false }).order("id"));
     setSearchResult({ student:found, history:data||[] }); setView("student-history");
   }
 
@@ -194,7 +194,7 @@ export default function TeacherApp({ user, onLogout }) {
     const XLSX = await import("xlsx");
     const sessName = activeSession?.name || "sesion";
     const dateList = [...allDates].sort();
-    const { data:allAtt } = await sb.from("attendance").select("student_id,date,status,reason").eq("session_id", activeSession.id);
+    const { data:allAtt } = await fetchAll(() => sb.from("attendance").select("student_id,date,status,reason").eq("session_id", activeSession.id).order("id"));
     const idx = {}; (allAtt||[]).forEach(r => { if (!idx[r.student_id]) idx[r.student_id] = {}; idx[r.student_id][r.date] = { status:r.status, reason:r.reason||"" }; });
     const wb = XLSX.utils.book_new();
     function sheetDate() {

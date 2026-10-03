@@ -34,7 +34,7 @@ async function fetchAttendance({ from, to, sessionIds, studentId }) {
   const PAGE = 1000;
   for (let start = 0; ; start += PAGE) {
     let q = sb.from("attendance").select("session_id,student_id,date,status,reason")
-      .gte("date", from).lte("date", to).order("date").range(start, start + PAGE - 1);
+      .gte("date", from).lte("date", to).order("date").order("id").range(start, start + PAGE - 1);
     if (studentId) q = q.eq("student_id", studentId);
     else if (sessionIds?.length) q = q.in("session_id", sessionIds);
     const { data, error } = await q;

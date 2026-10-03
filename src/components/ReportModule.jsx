@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { sb } from "../lib/supabase";
+import { sb, fetchAll } from "../lib/supabase";
 import { C } from "../lib/constants";
 import { Empty } from "./Shared";
 
@@ -36,8 +36,8 @@ export default function ReportModule({ sessionId, students }) {
   async function buildReport() {
     setLoading(true);
 
-    const { data:attData } = await sb.from("attendance")
-      .select("student_id,date,status").eq("session_id", sessionId);
+    const { data:attData } = await fetchAll(() => sb.from("attendance")
+      .select("student_id,date,status").eq("session_id", sessionId).order("id"));
 
     const rows = students.map(s => {
       const attRows = (attData||[]).filter(a => a.student_id === s.id);

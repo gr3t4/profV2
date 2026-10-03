@@ -18,6 +18,9 @@ export const TURNOS = {
   vespertino: { label:"Vespertino", icon:"🌇" },
 };
 
-export const today   = () => new Date().toISOString().split("T")[0];
+// Fecha de hoy en hora de Ciudad de México (YYYY-MM-DD). Antes se usaba UTC, y
+// desde las 18:00 la app creía que ya era el día siguiente.
+const MX_DATE = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit" });
+export const today   = () => MX_DATE.format(new Date());
 export const fmtDate = (d) => new Date(d+"T12:00:00").toLocaleDateString("es-MX",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
 export const fmtDT   = (iso) => new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
