@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { sb } from "../lib/supabase";
 import { callAdminUsers } from "../lib/adminUsers";
 import { C, BRAND, fmtDate, fmtDT } from "../lib/constants";
-import { GlobalStyles, Glow, Toast, Empty, Pill, Avatar, StatusBadge, RoleBadge } from "./Shared";
+import { GlobalStyles, Glow, Toast, Empty, Pill, Avatar, StatusBadge, RoleBadge, BrandMark } from "./Shared";
 
 export default function AdminPanel({ user, onLogout }) {
   const [tab, setTab]                           = useState("overview");
@@ -147,7 +147,7 @@ export default function AdminPanel({ user, onLogout }) {
         <div style={{maxWidth:1000,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
             {tab==="user-detail"&&<button className="btn" onClick={()=>setTab("users")} style={{background:"none",color:C.muted,fontSize:20,padding:"4px 8px",flexShrink:0}}>←</button>}
-            <img src={BRAND.logo} alt={BRAND.name} style={{height:28,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
+            <BrandMark size={28}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
             <span style={{background:`${C.gold}22`,color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,flexShrink:0}}>ADMIN</span>
           </div>

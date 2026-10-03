@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { sb, fetchAll } from "../lib/supabase";
 import { queueAttendance, queueHours, flush, pendingCount, pendingFor, pendingDates, onPendingChange } from "../lib/offlineQueue";
 import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
-import { GlobalStyles, Glow, Toast, Empty, AddStudentInline } from "./Shared";
+import { GlobalStyles, Glow, Toast, Empty, AddStudentInline, BrandMark } from "./Shared";
 import JustifyModal from "./JustifyModal";
 import ExportModal from "./ExportModal";
 import ImportPreviewModal from "./ImportPreviewModal";
@@ -321,7 +321,7 @@ export default function TeacherApp({ user, onLogout }) {
         <div style={{maxWidth:980,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:52}}>
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
             {view!=="sessions"&&<button className="btn" onClick={()=>{if(view==="student-history"){setView("attendance");setSearchResult(null);setSearchQuery("");}else{setView("sessions");setActiveSess(null);}}} style={{background:"none",color:C.muted,fontSize:20,padding:"4px 6px",flexShrink:0}}>←</button>}
-            <img src={BRAND.logo} alt={BRAND.name} style={{height:28,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
+            <BrandMark size={28}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
             {activeSession&&view!=="sessions"&&<span className="hide-mobile" style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>/ {activeSession.name}</span>}
           </div>

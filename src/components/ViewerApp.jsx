@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { sb, fetchAll } from "../lib/supabase";
 import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
-import { GlobalStyles, Glow, Empty } from "./Shared";
+import { GlobalStyles, Glow, Empty, BrandMark } from "./Shared";
 import ViewerReports from "./ViewerReports";
 
 // true en pantallas angostas (celular)
@@ -357,7 +357,7 @@ export default function ViewerApp({ user, onLogout }) {
       <header style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 14px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,0,0,0.4)"}}>
         <div style={{maxWidth:1400,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-            <img src={BRAND.logo} alt={BRAND.name} style={{height:28,objectFit:"contain",flexShrink:0}} onError={e=>e.target.style.display="none"}/>
+            <BrandMark size={28}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
             <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:.5,flexShrink:0}}>PREFECTURA{user.turno?` · ${TURNOS[user.turno].label.toUpperCase()}`:""}</span>
           </div>

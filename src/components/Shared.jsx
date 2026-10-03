@@ -78,11 +78,32 @@ export function AddStudentInline({ onAdd }) {
   );
 }
 
+// Figura animada de la app (en lugar de un logo): tres órbitas en guinda, verde y
+// dorado girando alrededor de una palomita que se dibuja una y otra vez.
+export function BrandMark({ size = 28, style }) {
+  return (
+    <svg className="bm" width={size} height={size} viewBox="0 0 48 48" role="img" aria-label="AppProf" style={{flexShrink:0,display:"block",...style}}>
+      <circle cx="24" cy="24" r="21" fill="none" stroke="#9D2449" strokeWidth="3" strokeLinecap="round" strokeDasharray="70 62" className="bm-o1"/>
+      <circle cx="24" cy="24" r="15.5" fill="none" stroke="#00a87e" strokeWidth="3" strokeLinecap="round" strokeDasharray="44 53" className="bm-o2"/>
+      <circle cx="24" cy="24" r="10" fill="none" stroke="#B38E5D" strokeWidth="2.6" strokeLinecap="round" strokeDasharray="22 41" className="bm-o3"/>
+      <path d="M18.5 24.5 L22.5 28.5 L30 20" fill="none" stroke="#e8f5f1" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" pathLength="1" className="bm-check"/>
+    </svg>
+  );
+}
+
 export function GlobalStyles() {
   return (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
       *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+      .bm-o1,.bm-o2,.bm-o3{transform-origin:24px 24px;}
+      .bm-o1{animation:bmSpin 3.2s linear infinite;}
+      .bm-o2{animation:bmSpin 2.3s linear infinite reverse;}
+      .bm-o3{animation:bmSpin 4.4s linear infinite;}
+      .bm-check{stroke-dasharray:1;stroke-dashoffset:1;animation:bmDraw 3.2s ease-in-out infinite;}
+      @keyframes bmSpin{to{transform:rotate(360deg);}}
+      @keyframes bmDraw{0%,8%{stroke-dashoffset:1;}35%,80%{stroke-dashoffset:0;}100%{stroke-dashoffset:-1;}}
+      @media (prefers-reduced-motion: reduce){.bm *{animation:none!important;stroke-dashoffset:0!important;}}
       html{
         -webkit-text-size-adjust:100%;
         height:100%;

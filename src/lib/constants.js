@@ -2,7 +2,6 @@
 // guinda Pantone 7420 C #9D2449 y dorado Pantone 465 C #B38E5D.
 export const BRAND = {
   name: "CONALEP",
-  logo: "/conalep-logo-blanco.png",
   stripe: "linear-gradient(90deg,#9D2449 0 33%,#007E67 33% 66%,#B38E5D 66% 100%)",
 };
 

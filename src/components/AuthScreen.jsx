@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GlobalStyles } from "./Shared";
+import { GlobalStyles, BrandMark } from "./Shared";
 import { BRAND } from "../lib/constants";
 
 const T = {
@@ -61,7 +61,7 @@ export default function AuthScreen({ onLogin, onRegister }) {
   return (
     <Screen>
       <div style={{textAlign:"center",marginBottom:28}}>
-        <img src={BRAND.logo} alt={BRAND.name} style={{height:72,objectFit:"contain",display:"block",margin:"0 auto 14px"}}/>
+        <BrandMark size={76} style={{margin:"0 auto 14px"}}/>
         <h1 style={{fontFamily:"'Sora',sans-serif",fontSize:"clamp(22px,6vw,26px)",color:T.text,fontWeight:800,margin:0}}>AppProf</h1>
         <div style={{width:72,height:3,background:BRAND.stripe,borderRadius:2,margin:"10px auto 0"}}/>
       </div>
