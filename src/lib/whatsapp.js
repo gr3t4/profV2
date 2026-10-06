@@ -48,6 +48,14 @@ export function sendTutoriaMessage(phone, msg) {
   return openChat(phone, msg);
 }
 
+// Grupos de WhatsApp: no existe un link para abrir un grupo con el texto escrito.
+// wa.me sin número abre WhatsApp con el mensaje listo y la lista de chats para
+// elegir el grupo (en celular y en WhatsApp Web).
+export function shareToWhatsAppGroup(msg) {
+  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
+  return true;
+}
+
 // Envía al tutor, por WhatsApp, el link de solo lectura para ver la
 // asistencia de su hijo (?padre=<token>, sin necesidad de iniciar sesión).
 export function sendAttendanceLink({ student, sessionName }) {
