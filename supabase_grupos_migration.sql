@@ -114,3 +114,21 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
 $$;
 REVOKE ALL ON FUNCTION get_parent_attendance(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_parent_attendance(uuid) TO anon, authenticated;
+
+-- ══════════════════════════════════════════════════════════════════
+--  FASE 2 — después de publicar la nueva versión de la app
+-- ══════════════════════════════════════════════════════════════════
+-- Permitir varias listas al día (una por clase) para el mismo alumno
+ALTER TABLE attendance DROP CONSTRAINT IF EXISTS attendance_student_id_date_key;
+
+-- Borrar una clase ya NO borra la lista de alumnos del grupo
+ALTER TABLE students DROP CONSTRAINT IF EXISTS students_session_id_fkey;
+ALTER TABLE students ADD CONSTRAINT students_session_id_fkey
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL;
+UPDATE students SET session_id = NULL WHERE grupo_id IS NOT NULL;
+
+-- Reglas viejas por sesión (sustituidas por las de grupo)
+DROP POLICY IF EXISTS students_select ON students;
+DROP POLICY IF EXISTS students_insert ON students;
+DROP POLICY IF EXISTS students_update ON students;
+DROP POLICY IF EXISTS students_delete ON students;
