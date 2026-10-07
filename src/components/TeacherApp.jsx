@@ -163,7 +163,7 @@ export default function TeacherApp({ user, onLogout }) {
   }
 
   // Clase creada o editada desde el formulario (grupo, materia, turno y horario)
-  function onClaseSaved(saved, isNew) {
+  function onClaseSaved(saved, isNew, added = 0) {
     setClaseForm(null);
     setSessions(p => isNew ? [saved, ...p] : p.map(x => x.id === saved.id ? saved : x));
     if (saved.grupo && !grupos.some(g => g.id === saved.grupo.id)) setGrupos(p => [...p, saved.grupo].sort((a,b)=>a.name.localeCompare(b.name)));
@@ -172,7 +172,8 @@ export default function TeacherApp({ user, onLogout }) {
       setActiveSess(saved);
       if (!allDates.includes(selectedDate)) setClassHours(horasDelDia(saved.horario, selectedDate) || classHours);
     }
-    showToast(isNew ? "✅ Clase creada" : "💾 Clase actualizada");
+    showToast(isNew ? (added ? `✅ Clase creada · ${added} alumnos en el grupo ${saved.grupo?.name||""}` : "✅ Clase creada") : "💾 Clase actualizada");
+    if (isNew) selectSession(saved); // abre la clase nueva con la lista del grupo ya cargada
   }
   // Turno del grupo: decide qué Prefectura (matutino o vespertino) lo ve; lo comparten todas sus materias
   async function setTurno(turno) {

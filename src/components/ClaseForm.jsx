@@ -2,6 +2,7 @@ import { useState } from "react";
 import { sb } from "../lib/supabase";
 import { C, TURNOS, today } from "../lib/constants";
 import { DIAS, resumenHorario } from "../lib/horario";
+import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStudents";
 
 // Alta / edición de una clase: grupo (lista compartida), materia, turno y horario.
 export default function ClaseForm({ user, grupos, initial, onSaved, onClose }) {
@@ -13,6 +14,8 @@ export default function ClaseForm({ user, grupos, initial, onSaved, onClose }) {
   const [turno, setTurno]       = useState(initial?.grupo?.turno || grupoSel?.turno || "matutino");
   const [horario, setHorario]   = useState(() => (initial?.horario?.length ? initial.horario : [{ dia:1, inicio:"07:00", fin:"07:50" }]));
   const [busy, setBusy]         = useState(false);
+  const [roster, setRoster]     = useState(null);   // alumnos leídos del Excel para el grupo nuevo
+  const [rosterFile, setRosterFile] = useState("");
   const [error, setError]       = useState("");
 
   function pickGrupo(id) {
@@ -26,6 +29,17 @@ export default function ClaseForm({ user, grupos, initial, onSaved, onClose }) {
     return [...h, last ? { ...last, dia: Math.min(6, Number(last.dia) + 1) } : { dia:1, inicio:"07:00", fin:"07:50" }];
   });
   const delBloque = (i) => setHorario(h => h.filter((_, j) => j !== i));
+
+  async function pickRoster(e) {
+    const file = e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    setError("");
+    try {
+      const rows = (await parseStudentsExcel(file)).filter(r => r.name?.trim());
+      if (!rows.length) { setError("No se encontraron nombres en el archivo"); return; }
+      setRoster(rows); setRosterFile(file.name);
+    } catch { setError("No se pudo leer el archivo. Usa un Excel (.xlsx) con los nombres en la primera columna."); }
+  }
 
   async function save() {
     setError("");
@@ -67,7 +81,21 @@ export default function ClaseForm({ user, grupos, initial, onSaved, onClose }) {
         const { error:e } = await sb.from("grupos").update({ turno }).eq("id", grupo.id);
         if (!e) saved = { ...saved, grupo: { ...saved.grupo, turno } };
       }
-      onSaved(saved, !editing);
+      // 4. Lista del grupo desde el Excel (solo agrega los nombres que no estén ya)
+      let added = 0;
+      if (!editing && roster?.length) {
+        const { data:ex } = await sb.from("students").select("name").eq("grupo_id", grupo.id);
+        const have = new Set((ex || []).map(x => x.name.trim().toLowerCase()));
+        const seen = new Set();
+        const toInsert = roster.filter(r => { const k = r.name.trim().toLowerCase(); if (have.has(k) || seen.has(k)) return false; seen.add(k); return true; })
+          .map(r => ({ grupo_id: grupo.id, name: r.name.trim(), tutor_name: r.tutorName || null, tutor_phone: r.tutorPhone || null }));
+        if (toInsert.length) {
+          const { data:ins, error:e } = await sb.from("students").insert(toInsert).select("id");
+          if (e) throw new Error("La clase se creó, pero no se pudo cargar la lista: " + e.message);
+          added = ins?.length || 0;
+        }
+      }
+      onSaved(saved, !editing, added);
     } catch (e) {
       setError(e.message || String(e));
     }
@@ -95,10 +123,29 @@ export default function ClaseForm({ user, grupos, initial, onSaved, onClose }) {
                   <option value="new">➕ Nuevo grupo…</option>
                 </select>
                 {grupoId === "new" && (
-                  <input className="inp" style={{marginTop:8}} placeholder="Nombre del grupo, p. ej. 304" value={newGrupo} autoFocus onChange={e => setNewGrupo(e.target.value)}/>
+                  <>
+                    <input className="inp" style={{marginTop:8}} placeholder="Nombre del grupo, p. ej. 304" value={newGrupo} autoFocus onChange={e => setNewGrupo(e.target.value)}/>
+                    {roster ? (
+                      <div style={{marginTop:8,background:`${C.success}14`,border:`1px solid ${C.success}55`,borderRadius:10,padding:"9px 12px",display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{flex:1,minWidth:0,fontSize:12}}>
+                          <div style={{color:C.success,fontWeight:700}}>✅ {roster.length} alumnos listos para el grupo</div>
+                          <div style={{color:C.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rosterFile} · {roster.slice(0,3).map(r=>r.name).join(", ")}{roster.length>3?"…":""}</div>
+                        </div>
+                        <button className="btn" onClick={() => { setRoster(null); setRosterFile(""); }} style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",fontSize:12,fontFamily:"inherit",flexShrink:0}}>Quitar</button>
+                      </div>
+                    ) : (
+                      <div style={{display:"flex",gap:8,marginTop:8}}>
+                        <label className="btn" style={{flex:1,background:`${C.accent}18`,color:C.accent,border:`1px dashed ${C.accent}88`,borderRadius:10,padding:"10px 8px",fontSize:13,fontWeight:600,textAlign:"center",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          📥 Subir lista del grupo (Excel)
+                          <input type="file" accept=".xlsx,.xls,.csv" onChange={pickRoster} style={{display:"none"}}/>
+                        </label>
+                        <button className="btn" onClick={downloadStudentsTemplate} title="Descargar plantilla" style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:12,fontFamily:"inherit"}}>📄 Plantilla</button>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div style={{fontSize:11,color:C.muted,marginTop:5,lineHeight:1.4}}>
-                  {grupoId === "new" ? "Después podrás importar la lista de alumnos del grupo." : "La lista de alumnos del grupo es la misma para todas sus materias."}
+                  {grupoId === "new" ? "La lista se carga al crear el grupo y la verán todas sus materias. También puedes subirla después." : "La lista de alumnos del grupo ya está cargada y es la misma para todas sus materias."}
                 </div>
               </>
             )}
