@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { sb } from "../lib/supabase";
 import { C, STATUS, today, fmtDate } from "../lib/constants";
+import { inicioDelDia } from "../lib/horario";
 import { Empty } from "./Shared";
 
 // ── Utilidades ───────────────────────────────────────────────────
@@ -85,33 +86,47 @@ const genBtn   = {background:`linear-gradient(135deg,${C.teal},${C.accent})`,col
 const card     = {background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px",marginBottom:12};
 const label    = {fontSize:11,color:C.muted,marginBottom:5};
 
+// Resumen de un alumno en un día (varias clases): "P" sin faltas, "F" faltó a todas, "F2" faltó a 2
+function dayCode(recs) {
+  if (!recs?.length) return "-";
+  const f = recs.filter(r => r.status === "absent").length;
+  if (!f) return recs.some(r => r.status === "late") ? "R" : "P";
+  return f === recs.length ? "F" : `F${f}`;
+}
+
 // ── Reporte mensual ──────────────────────────────────────────────
-function MonthlyReport({ sessions }) {
+// grupos: [{ id, name, turno, students:[{id,name}], clases:[{id, materia, docente, horario}] }]
+function MonthlyReport({ grupos }) {
   const [month, setMonth]   = useState(today().slice(0, 7));
-  const [groupId, setGroup] = useState("all");
+  const [grupoId, setGrupo] = useState("all");
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState("");
-  const [result, setResult] = useState(null); // { month, groups:[{session, dates, rows:[{student, c, byDate}] , c}] }
+  const [result, setResult] = useState(null);
   const [sortBy, setSortBy] = useState("absent");
 
   async function generate() {
     setBusy(true); setError("");
     try {
       const [from, to] = monthRange(month);
-      const groups = groupId === "all" ? sessions : sessions.filter(s => s.id === groupId);
-      const att = await fetchAttendance({ from, to, sessionIds: groups.map(g => g.id) });
-      const byStudent = {};
-      att.forEach(a => { (byStudent[a.student_id] ??= {})[a.date] = a; });
-      const out = groups.map(g => {
-        const dates = [...new Set(att.filter(a => a.session_id === g.id).map(a => a.date))].sort();
+      const sel = grupoId === "all" ? grupos : grupos.filter(g => g.id === grupoId);
+      const att = await fetchAttendance({ from, to, sessionIds: sel.flatMap(g => g.clases.map(c => c.id)) });
+      const byStudentDay = {};
+      att.forEach(a => { ((byStudentDay[a.student_id] ??= {})[a.date] ??= []).push(a); });
+      const out = sel.map(g => {
+        const ids = new Set(g.clases.map(c => c.id));
+        const dates = [...new Set(att.filter(a => ids.has(a.session_id)).map(a => a.date))].sort();
         const gc = emptyCounts();
         const rows = g.students.map(st => {
           const c = emptyCounts();
-          const byDate = byStudent[st.id] || {};
-          Object.values(byDate).forEach(a => { if (c[a.status] !== undefined) { c[a.status]++; gc[a.status]++; } });
-          return { student: st, c, byDate };
+          const byDay = byStudentDay[st.id] || {};
+          let diasSinVenir = 0;
+          Object.values(byDay).forEach(recs => {
+            recs.forEach(a => { if (c[a.status] !== undefined) { c[a.status]++; gc[a.status]++; } });
+            if (recs.length && recs.every(r => r.status === "absent")) diasSinVenir++;
+          });
+          return { student: st, c, byDay, diasSinVenir };
         });
-        return { session: g, dates, rows, c: gc };
+        return { grupo: g, dates, rows, c: gc };
       });
       setResult({ month, groups: out });
     } catch (e) {
@@ -130,34 +145,34 @@ function MonthlyReport({ sessions }) {
   async function exportXlsx() {
     const XLSX = await import("xlsx");
     const wb = XLSX.utils.book_new();
-    const resumen = [["Reporte mensual de asistencia — " + monthLabel(result.month)], [],
-      ["Grupo","Docente","Alumno","Presencias","Retardos","Justificadas","Faltas","Clases registradas","% Asistencia"]];
+    const resumen = [["Reporte mensual de asistencia — " + monthLabel(result.month)], ["Cada clase registrada cuenta por separado (un día con 6 clases = 6 registros)."], [],
+      ["Grupo","Alumno","Presencias","Retardos","Justificadas","Faltas","Clases registradas","% Asistencia","Días que no vino"]];
     result.groups.forEach(g => g.rows.forEach(r => {
       const reg = r.c.present + r.c.late + r.c.excused + r.c.absent;
       const p = pctOf(r.c);
-      resumen.push([g.session.name, g.session.ownerName, r.student.name, r.c.present, r.c.late, r.c.excused, r.c.absent, reg, p === null ? "—" : p / 100]);
+      resumen.push([g.grupo.name, r.student.name, r.c.present, r.c.late, r.c.excused, r.c.absent, reg, p === null ? "—" : p / 100, r.diasSinVenir]);
     }));
     const ws = XLSX.utils.aoa_to_sheet(resumen);
-    for (let i = 3; i < resumen.length; i++) {
-      const cell = ws[XLSX.utils.encode_cell({ r:i, c:8 })];
+    for (let i = 4; i < resumen.length; i++) {
+      const cell = ws[XLSX.utils.encode_cell({ r:i, c:7 })];
       if (cell && typeof cell.v === "number") cell.z = "0%";
     }
-    ws["!cols"] = [{wch:30},{wch:28},{wch:36},{wch:11},{wch:10},{wch:12},{wch:8},{wch:12},{wch:12}];
+    ws["!cols"] = [{wch:10},{wch:36},{wch:11},{wch:10},{wch:12},{wch:8},{wch:17},{wch:12},{wch:15}];
     XLSX.utils.book_append_sheet(wb, ws, "Resumen");
 
     const used = new Set(["Resumen"]);
     result.groups.forEach(g => {
-      const header = ["Alumno", ...g.dates.map(d => d.slice(8, 10) + "/" + d.slice(5, 7)), "P", "R", "J", "F", "% Asist."];
+      const header = ["Alumno", ...g.dates.map(d => d.slice(8, 10) + "/" + d.slice(5, 7)), "P", "R", "J", "F", "% Asist.", "Días sin venir"];
       const rows = g.rows.map(r => {
         const p = pctOf(r.c);
-        return [r.student.name, ...g.dates.map(d => STATUS[r.byDate[d]?.status]?.short || "-"),
-          r.c.present, r.c.late, r.c.excused, r.c.absent, p === null ? "—" : p + "%"];
+        return [r.student.name, ...g.dates.map(d => dayCode(r.byDay[d])), r.c.present, r.c.late, r.c.excused, r.c.absent, p === null ? "—" : p + "%", r.diasSinVenir];
       });
-      const sh = XLSX.utils.aoa_to_sheet([[g.session.name + " — " + g.session.ownerName + " — " + monthLabel(result.month)], [], header, ...rows,
-        [], ["P = presente · R = retardo · J = justificada · F = falta · - = sin registro"]]);
-      sh["!cols"] = [{wch:36}, ...g.dates.map(() => ({wch:6})), {wch:4},{wch:4},{wch:4},{wch:4},{wch:9}];
-      let name = safeSheet(g.session.name), k = 2;
-      while (used.has(name)) name = safeSheet(g.session.name).slice(0, 28) + " " + k++;
+      const sh = XLSX.utils.aoa_to_sheet([[`Grupo ${g.grupo.name} — ${monthLabel(result.month)}`], [], header, ...rows,
+        [], ["Por día: P = asistió a todas · R = asistió con retardo · F = no vino (faltó a todas) · F2 = faltó a 2 clases · - = sin registro"],
+        ["Columnas P, R, J, F: total de clases en el mes (cada clase cuenta por separado)."]]);
+      sh["!cols"] = [{wch:36}, ...g.dates.map(() => ({wch:6})), {wch:4},{wch:4},{wch:4},{wch:4},{wch:9},{wch:13}];
+      let name = safeSheet("Grupo " + g.grupo.name), k = 2;
+      while (used.has(name)) name = safeSheet("Grupo " + g.grupo.name).slice(0, 28) + " " + k++;
       used.add(name);
       XLSX.utils.book_append_sheet(wb, sh, name);
     });
@@ -180,9 +195,9 @@ function MonthlyReport({ sessions }) {
           </div>
           <div style={{flex:"2 1 200px",minWidth:0}}>
             <div style={label}>Grupo</div>
-            <select className="inp" value={groupId} onChange={e => { setGroup(e.target.value); setResult(null); }}>
-              <option value="all">Todos los grupos ({sessions.length})</option>
-              {sessions.map(s => <option key={s.id} value={s.id}>{s.name} — {s.ownerName}</option>)}
+            <select className="inp" value={grupoId} onChange={e => { setGrupo(e.target.value); setResult(null); }}>
+              <option value="all">Todos los grupos ({grupos.length})</option>
+              {grupos.map(g => <option key={g.id} value={g.id}>Grupo {g.name} · {g.clases.length} materia{g.clases.length===1?"":"s"}</option>)}
             </select>
           </div>
           <button className="btn" onClick={generate} disabled={busy} style={{...genBtn,flex:"1 1 140px"}}>
@@ -201,7 +216,7 @@ function MonthlyReport({ sessions }) {
               <div style={{minWidth:0}}>
                 <div style={{fontWeight:700,fontSize:15}}>Reporte de {monthLabel(result.month)}</div>
                 <div style={{color:C.muted,fontSize:12,marginTop:2}}>
-                  {result.groups.length} grupo{result.groups.length===1?"":"s"} · {result.groups.reduce((a,g)=>a+g.rows.length,0)} alumnos
+                  {result.groups.length} grupo{result.groups.length===1?"":"s"} · {result.groups.reduce((a,g)=>a+g.rows.length,0)} alumnos · cada clase cuenta por separado
                 </div>
               </div>
               <button className="btn" onClick={exportXlsx} style={excelBtn}>📥 Descargar Excel</button>
@@ -218,11 +233,11 @@ function MonthlyReport({ sessions }) {
           </div>
 
           {result.groups.map(g => (
-            <div key={g.session.id} style={{...card,padding:0,overflow:"hidden"}}>
+            <div key={g.grupo.id} style={{...card,padding:0,overflow:"hidden"}}>
               <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
                 <div style={{minWidth:0}}>
-                  <div style={{fontWeight:700,fontSize:14,overflowWrap:"anywhere"}}>{g.session.name}</div>
-                  <div style={{color:C.muted,fontSize:11,marginTop:2}}>👤 {g.session.ownerName} · {g.dates.length} clase{g.dates.length===1?"":"s"} registradas</div>
+                  <div style={{fontWeight:700,fontSize:15}}>Grupo {g.grupo.name}</div>
+                  <div style={{color:C.muted,fontSize:11,marginTop:2}}>{g.grupo.clases.length} materia{g.grupo.clases.length===1?"":"s"} · {g.dates.length} día{g.dates.length===1?"":"s"} con lista</div>
                 </div>
                 <div style={{fontWeight:800,fontSize:16,color:pctColor(pctOf(g.c)),flexShrink:0}}>{pctOf(g.c) ?? "—"}{pctOf(g.c)!==null&&"%"}</div>
               </div>
@@ -230,22 +245,23 @@ function MonthlyReport({ sessions }) {
                 <div style={{padding:"14px",color:C.muted,fontSize:12}}>Sin registros de asistencia en este mes.</div>
               ) : (
                 <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)"}}>
-                  <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) repeat(4,30px) 46px",gap:4,padding:"6px 14px",fontSize:10,color:C.muted,fontWeight:700,background:C.surface}}>
-                    <span>ALUMNO</span><span style={{textAlign:"center"}}>✅</span><span style={{textAlign:"center"}}>🕐</span><span style={{textAlign:"center"}}>📝</span><span style={{textAlign:"center"}}>❌</span><span style={{textAlign:"right"}}>%</span>
+                  <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) repeat(3,30px) 34px 44px",gap:4,padding:"6px 14px",fontSize:10,color:C.muted,fontWeight:700,background:C.surface}}>
+                    <span>ALUMNO</span><span style={{textAlign:"center"}}>🕐</span><span style={{textAlign:"center"}}>📝</span><span style={{textAlign:"center"}}>❌</span><span style={{textAlign:"center"}} title="Días que no vino">🚫</span><span style={{textAlign:"right"}}>%</span>
                   </div>
                   {[...g.rows].sort(sorter).map(r => {
                     const p = pctOf(r.c);
                     return (
-                      <div key={r.student.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) repeat(4,30px) 46px",gap:4,padding:"8px 14px",fontSize:12,borderTop:`1px solid ${C.border}66`,alignItems:"center"}}>
+                      <div key={r.student.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) repeat(3,30px) 34px 44px",gap:4,padding:"8px 14px",fontSize:12,borderTop:`1px solid ${C.border}66`,alignItems:"center"}}>
                         <span style={{overflowWrap:"anywhere"}}>{r.student.name}</span>
-                        <span style={{textAlign:"center",color:C.success}}>{r.c.present}</span>
                         <span style={{textAlign:"center",color:C.late}}>{r.c.late}</span>
                         <span style={{textAlign:"center",color:C.excused}}>{r.c.excused}</span>
                         <span style={{textAlign:"center",color:C.danger,fontWeight:r.c.absent?700:400}}>{r.c.absent}</span>
+                        <span style={{textAlign:"center",color:r.diasSinVenir?C.danger:C.muted,fontWeight:r.diasSinVenir?700:400}}>{r.diasSinVenir}</span>
                         <span style={{textAlign:"right",fontWeight:700,color:pctColor(p)}}>{p===null?"—":p+"%"}</span>
                       </div>
                     );
                   })}
+                  <div style={{padding:"8px 14px",fontSize:10,color:C.muted,borderTop:`1px solid ${C.border}66`}}>🕐 retardos · 📝 justificadas · ❌ faltas (por clase) · 🚫 días que no vino</div>
                 </div>
               )}
             </div>
@@ -257,9 +273,9 @@ function MonthlyReport({ sessions }) {
 }
 
 // ── Reporte por alumno ───────────────────────────────────────────
-function StudentReport({ sessions }) {
+function StudentReport({ grupos }) {
   const [query, setQuery]   = useState("");
-  const [picked, setPicked] = useState(null);   // { student, session }
+  const [picked, setPicked] = useState(null);   // { student, grupo }
   const [mode, setMode]     = useState("month"); // month | range
   const [month, setMonth]   = useState(today().slice(0, 7));
   const [from, setFrom]     = useState(today().slice(0, 7) + "-01");
@@ -268,7 +284,7 @@ function StudentReport({ sessions }) {
   const [error, setError]   = useState("");
   const [result, setResult] = useState(null);
 
-  const allStudents = useMemo(() => sessions.flatMap(s => s.students.map(st => ({ student: st, session: s }))), [sessions]);
+  const allStudents = useMemo(() => grupos.flatMap(g => g.students.map(st => ({ student: st, grupo: g }))), [grupos]);
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q.length < 2) return [];
@@ -282,10 +298,17 @@ function StudentReport({ sessions }) {
     if (f > t) { setError("La fecha inicial es posterior a la final"); return; }
     setBusy(true); setError("");
     try {
-      const rows = await fetchAttendance({ from: f, to: t, studentId: picked.student.id });
+      const clases = Object.fromEntries(picked.grupo.clases.map(c => [c.id, c]));
+      const rows = (await fetchAttendance({ from: f, to: t, studentId: picked.student.id }))
+        .map(r => ({ ...r, clase: clases[r.session_id], inicio: inicioDelDia(clases[r.session_id]?.horario, r.date) }));
       const c = emptyCounts();
       rows.forEach(r => { if (c[r.status] !== undefined) c[r.status]++; });
-      setResult({ from: f, to: t, rows: rows.slice().reverse(), c, label: mode === "month" ? monthLabel(month) : `${fmtDate(f)} – ${fmtDate(t)}` });
+      // Agrupar por día (más reciente primero), clases ordenadas por hora
+      const byDay = {};
+      rows.forEach(r => (byDay[r.date] ??= []).push(r));
+      const days = Object.keys(byDay).sort().reverse().map(d => ({ date: d, recs: byDay[d].sort((a, b) => (a.inicio || "99").localeCompare(b.inicio || "99")) }));
+      const diasSinVenir = days.filter(d => d.recs.every(r => r.status === "absent")).length;
+      setResult({ from: f, to: t, days, c, diasSinVenir, total: rows.length, label: mode === "month" ? monthLabel(month) : `${fmtDate(f)} – ${fmtDate(t)}` });
     } catch (e) {
       setError("No se pudo generar: " + (e.message || e));
     }
@@ -294,18 +317,18 @@ function StudentReport({ sessions }) {
 
   async function exportXlsx() {
     const XLSX = await import("xlsx");
-    const { student, session } = picked;
+    const { student, grupo } = picked;
     const p = pctOf(result.c);
     const data = [
       ["Reporte de asistencia por alumno"], [],
-      ["Alumno", student.name], ["Grupo", session.name], ["Docente", session.ownerName], ["Periodo", result.label], [],
-      ["Presencias", result.c.present], ["Retardos", result.c.late], ["Justificadas", result.c.excused], ["Faltas", result.c.absent],
-      ["% Asistencia", p === null ? "—" : p + "%"], [],
-      ["Fecha", "Estado", "Motivo"],
-      ...result.rows.slice().reverse().map(r => [r.date, STATUS[r.status]?.label || r.status, r.reason || ""]),
+      ["Alumno", student.name], ["Grupo", grupo.name], ["Periodo", result.label], [],
+      ["Clases registradas", result.total], ["Presencias", result.c.present], ["Retardos", result.c.late], ["Justificadas", result.c.excused], ["Faltas", result.c.absent],
+      ["% Asistencia", p === null ? "—" : p + "%"], ["Días que no vino", result.diasSinVenir], [],
+      ["Fecha", "Hora", "Materia", "Docente", "Estado", "Motivo"],
+      ...result.days.slice().reverse().flatMap(d => d.recs.map(r => [r.date, r.inicio || "", r.clase?.materia || "", r.clase?.docente || "", STATUS[r.status]?.label || r.status, r.reason || ""])),
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws["!cols"] = [{wch:16},{wch:36},{wch:40}];
+    ws["!cols"] = [{wch:18},{wch:8},{wch:30},{wch:28},{wch:12},{wch:36}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Alumno");
     const slug = student.name.replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
@@ -320,7 +343,7 @@ function StudentReport({ sessions }) {
           <div style={{display:"flex",alignItems:"center",gap:10,background:C.surface,border:`1px solid ${C.accent}66`,borderRadius:10,padding:"10px 12px"}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:700,fontSize:14,overflowWrap:"anywhere"}}>{picked.student.name}</div>
-              <div style={{color:C.muted,fontSize:11,marginTop:2}}>📚 {picked.session.name} · 👤 {picked.session.ownerName}</div>
+              <div style={{color:C.muted,fontSize:11,marginTop:2}}>👥 Grupo {picked.grupo.name} · {picked.grupo.clases.length} materias</div>
             </div>
             <button className="btn" onClick={() => { setPicked(null); setResult(null); }}
               style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",fontSize:12,fontFamily:"inherit",flexShrink:0}}>Cambiar</button>
@@ -334,7 +357,7 @@ function StudentReport({ sessions }) {
                   <button key={x.student.id} className="btn" onClick={() => pick(x)}
                     style={{display:"block",width:"100%",textAlign:"left",background:C.surface,color:C.text,borderBottom:`1px solid ${C.border}`,padding:"9px 12px",fontFamily:"inherit"}}>
                     <div style={{fontSize:13,fontWeight:600}}>{x.student.name}</div>
-                    <div style={{fontSize:11,color:C.muted}}>📚 {x.session.name} · 👤 {x.session.ownerName}</div>
+                    <div style={{fontSize:11,color:C.muted}}>👥 Grupo {x.grupo.name}</div>
                   </button>
                 ))}
               </div>
@@ -381,23 +404,33 @@ function StudentReport({ sessions }) {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
               <div style={{minWidth:0}}>
                 <div style={{fontWeight:700,fontSize:15}}>Periodo: {result.label}</div>
-                <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.rows.length} clase{result.rows.length===1?"":"s"} registradas</div>
+                <div style={{color:C.muted,fontSize:12,marginTop:2}}>{result.days.length} día{result.days.length===1?"":"s"} · {result.total} clases registradas · {result.diasSinVenir} día{result.diasSinVenir===1?"":"s"} que no vino</div>
               </div>
               <button className="btn" onClick={exportXlsx} style={excelBtn}>📥 Descargar Excel</button>
             </div>
             <CountTiles c={result.c}/>
           </div>
-          {result.rows.length === 0 ? <Empty icon="📭" msg="Sin registros en este periodo"/> : (
-            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:6}}>
-              {result.rows.map(r => {
-                const cfg = STATUS[r.status] || STATUS.pending;
+          {result.days.length === 0 ? <Empty icon="📭" msg="Sin registros en este periodo"/> : (
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8}}>
+              {result.days.map(d => {
+                const noVino = d.recs.every(r => r.status === "absent");
+                const f = d.recs.filter(r => r.status === "absent").length;
                 return (
-                  <div key={r.date + r.session_id} style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"10px 12px",minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <div style={{flex:1,fontSize:13,fontWeight:500}}>{fmtDate(r.date)}</div>
-                      <span style={{background:`${cfg.color}18`,color:cfg.color,border:`1px solid ${cfg.color}44`,borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:700,flexShrink:0}}>{cfg.icon} {cfg.label}</span>
+                  <div key={d.date} style={{background:C.card,border:`1px solid ${noVino?C.danger+"66":C.border}`,borderRadius:10,padding:"10px 12px",minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                      <div style={{flex:1,fontSize:13,fontWeight:600}}>{fmtDate(d.date)}</div>
+                      {noVino ? <span style={{background:`${C.danger}22`,color:C.danger,borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>🔴 No vino</span>
+                        : f ? <span style={{background:`${C.warning}22`,color:C.warning,borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>🟠 Faltó a {f} de {d.recs.length}</span>
+                        : <span style={{color:C.success,fontSize:11,fontWeight:700}}>✅ Asistió</span>}
                     </div>
-                    {r.status === "excused" && r.reason && <div style={{fontSize:11,color:C.muted,marginTop:4}}>📝 {r.reason}</div>}
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                      {d.recs.map(r => {
+                        const cfg = STATUS[r.status] || STATUS.pending;
+                        return <span key={r.session_id} title={r.reason || ""} style={{background:`${cfg.color}18`,color:cfg.color,border:`1px solid ${cfg.color}44`,borderRadius:6,padding:"2px 7px",fontSize:11}}>
+                          {cfg.icon} {r.inicio ? r.inicio + " " : ""}{r.clase?.materia || "Clase"}
+                        </span>;
+                      })}
+                    </div>
                   </div>
                 );
               })}
@@ -410,14 +443,14 @@ function StudentReport({ sessions }) {
 }
 
 // ── Pestaña de reportes ──────────────────────────────────────────
-export default function ViewerReports({ sessions }) {
+export default function ViewerReports({ grupos }) {
   const [kind, setKind] = useState("month");
   return (
     <div style={{animation:"fadeUp .3s ease both"}}>
       <div style={{marginBottom:12}}>
         <Seg value={kind} onChange={setKind} options={[["month","📅 Reporte mensual"],["student","🧑‍🎓 Por alumno"]]}/>
       </div>
-      {kind === "month" ? <MonthlyReport sessions={sessions}/> : <StudentReport sessions={sessions}/>}
+      {kind === "month" ? <MonthlyReport grupos={grupos}/> : <StudentReport grupos={grupos}/>}
     </div>
   );
 }

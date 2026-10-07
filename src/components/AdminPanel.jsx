@@ -23,10 +23,10 @@ export default function AdminPanel({ user, onLogout }) {
     setLoading(true);
     const { data:ud } = await sb.from("profiles").select("*").order("created_at", { ascending:false });
     setUsers(ud || []);
-    const { data:sd } = await sb.from("sessions").select(`id,name,date,created_at,owner:profiles(id,username,name),students(count),attendance(date,status)`).order("created_at", { ascending:false });
+    const { data:sd } = await sb.from("sessions").select(`id,name,date,created_at,grupo_id,owner:profiles(id,username,name),grupo:grupos(id,name,students(count)),attendance(date,status)`).order("created_at", { ascending:false });
     setAllSessions((sd||[]).map(s => ({
       ...s,
-      studentCount: s.students?.[0]?.count || 0,
+      studentCount: s.grupo?.students?.[0]?.count || 0,
       datesCount: [...new Set((s.attendance||[]).map(a=>a.date))].length,
       lateCount: (s.attendance||[]).filter(a=>a.status==="late").length,
       excusedCount: (s.attendance||[]).filter(a=>a.status==="excused").length,
@@ -37,8 +37,8 @@ export default function AdminPanel({ user, onLogout }) {
   useEffect(() => { (async () => { await loadAll(); })(); }, []);
 
   async function viewUserSessions(userId, userName) {
-    const { data } = await sb.from("sessions").select(`id,name,date,created_at,students(count),attendance(date,status)`).eq("owner_id", userId).order("created_at", { ascending:false });
-    setUserSessions((data||[]).map(s => ({...s, studentCount:s.students?.[0]?.count||0, datesCount:[...new Set((s.attendance||[]).map(a=>a.date))].length, excusedCount:(s.attendance||[]).filter(a=>a.status==="excused").length})));
+    const { data } = await sb.from("sessions").select(`id,name,date,created_at,grupo:grupos(id,name,students(count)),attendance(date,status)`).eq("owner_id", userId).order("created_at", { ascending:false });
+    setUserSessions((data||[]).map(s => ({...s, studentCount:s.grupo?.students?.[0]?.count||0, datesCount:[...new Set((s.attendance||[]).map(a=>a.date))].length, excusedCount:(s.attendance||[]).filter(a=>a.status==="excused").length})));
     setSelectedUser({ id:userId, name:userName });
     setTab("user-detail");
   }
@@ -101,7 +101,8 @@ export default function AdminPanel({ user, onLogout }) {
   const totalUsers   = users.filter(u=>u.role!=="admin").length;
   const activeUsers  = users.filter(u=>u.role!=="admin"&&u.active!==false).length;
   const totalSess    = allSessions.length;
-  const totalStu     = allSessions.reduce((a,s)=>a+(s.studentCount||0),0);
+  // Alumnos únicos: la lista es del grupo, compartida por todas sus materias
+  const totalStu     = Object.values(Object.fromEntries(allSessions.map(s=>[s.grupo_id||s.id, s.studentCount||0]))).reduce((a,b)=>a+b,0);
   const totalLate    = allSessions.reduce((a,s)=>a+(s.lateCount||0),0);
   const totalExcused = allSessions.reduce((a,s)=>a+(s.excusedCount||0),0);
   const TABS = [{id:"overview",label:"📊 Resumen"},{id:"users",label:"👥 Usuarios"},{id:"sessions",label:"📚 Sesiones"},{id:"settings",label:"⚙️ Ajustes"}];

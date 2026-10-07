@@ -25,7 +25,7 @@ export default function ParentView({ token }) {
       const rows = data.filter(r => r.att_date).sort((a, b) => b.att_date.localeCompare(a.att_date));
       setState({
         loading: false, error: false,
-        studentName: data[0].student_name, sessionName: data[0].session_name,
+        studentName: data[0].student_name, sessionName: "Asistencia por clase",
         rows,
       });
     })();
@@ -89,6 +89,7 @@ export default function ParentView({ token }) {
                       padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
                       <div>
                         <div style={{fontSize:13,color:C.text,fontWeight:600}}>{fmtDate(r.att_date)}</div>
+                        {r.session_name && <div style={{fontSize:12,color:C.teal,marginTop:2}}>📚 {r.session_name}</div>}
                         {r.reason && <div style={{fontSize:12,color:C.muted,marginTop:2}}>{r.reason}</div>}
                       </div>
                       <span style={{background:st.bg,color:st.color,borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>

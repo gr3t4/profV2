@@ -21,7 +21,7 @@ export function Toast({ msg }) {
 export function Glow({ top, bottom, left, right, color, size="45vw" }) {
   return (
     <div style={{
-      position:"absolute",top,bottom,left,right,
+      position:"fixed",top,bottom,left,right,
       width:size,height:size,borderRadius:"50%",
       background:`radial-gradient(circle,rgba(${color},0.07) 0%,transparent 70%)`,
       pointerEvents:"none",zIndex:0,

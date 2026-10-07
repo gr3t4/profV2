@@ -2,6 +2,7 @@ import { useState } from "react";
 import { sb } from "../lib/supabase";
 import { C } from "../lib/constants";
 import { cleanPhone, sendTutoriaMessage, shareToWhatsAppGroup } from "../lib/whatsapp";
+import { nombreClase } from "../lib/horario";
 
 // Aviso a Tutorías: destino (un número o un grupo de WhatsApp) y mensaje editable
 // con docente, materia, fecha y alumnos con falta.
@@ -89,7 +90,7 @@ export default function TutoriaModal({ session, absentCount, buildMessage, onSav
           <div style={{width:46,height:46,borderRadius:14,background:`${C.gold}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>🏫</div>
           <div style={{minWidth:0}}>
             <div style={{fontWeight:700,fontSize:16,color:C.text}}>Avisar a Tutorías</div>
-            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{session.name}</div>
+            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{nombreClase(session)}</div>
           </div>
         </div>
 

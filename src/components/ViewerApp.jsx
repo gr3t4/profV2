@@ -3,6 +3,7 @@ import { sb, fetchAll } from "../lib/supabase";
 import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
 import { GlobalStyles, Glow, Empty, BrandMark } from "./Shared";
 import ViewerReports from "./ViewerReports";
+import { tieneClase, inicioDelDia, bloquesDelDia } from "../lib/horario";
 
 // true en pantallas angostas (celular)
 function useIsMobile(bp = 760) {
@@ -56,53 +57,46 @@ function Ring({ pct, size = 72, stroke = 7 }) {
   );
 }
 
-// ── Tarjeta de grupo en la lista ─────────────────────────────────
-function GroupCard({ session, isActive, onClick }) {
-  const { counts, total } = session;
-  const pct = total > 0 ? Math.round(((counts.present+counts.late+counts.excused)/total)*100) : null;
-  const registered = counts.present + counts.late + counts.excused + counts.absent;
-
+// ── Tarjeta de grupo ─────────────────────────────────────────────
+function GroupCard({ grupo, isActive, onClick }) {
+  const d = grupo.dia;
   return (
     <div onClick={onClick} className="row-hover" style={{
       background: isActive ? `${C.accent}14` : C.card,
       border: `1px solid ${isActive ? C.accent : C.border}`,
-      borderLeft: `3px solid ${pctColor(pct)}`,
+      borderLeft: `3px solid ${pctColor(d.pct)}`,
       borderRadius: 12, padding: "12px 14px", cursor: "pointer", transition: "all .18s", minWidth: 0
     }}>
       <div style={{display:"flex",alignItems:"center",gap:12}}>
-        <Ring pct={pct} size={52} stroke={5}/>
+        <Ring pct={d.pct} size={52} stroke={5}/>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontWeight:600,fontSize:13,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{session.name}</div>
-          <div style={{color:C.muted,fontSize:11,marginTop:2}}>👤 {session.ownerName}{!session.turno&&<span style={{color:C.warning,marginLeft:6}}>· sin turno</span>}</div>
-          <div style={{display:"flex",gap:8,marginTop:5,fontSize:11,flexWrap:"wrap"}}>
-            <span style={{color:C.success}}>✅{counts.present}</span>
-            <span style={{color:C.late}}>🕐{counts.late}</span>
-            <span style={{color:C.excused}}>📝{counts.excused}</span>
-            <span style={{color:C.danger}}>❌{counts.absent}</span>
-            {counts.pending>0&&<span style={{color:C.muted}}>⏳{counts.pending}</span>}
+          <div style={{fontWeight:800,fontSize:16,color:C.text}}>Grupo {grupo.name}
+            {!grupo.turno&&<span style={{color:C.warning,fontSize:11,fontWeight:500,marginLeft:6}}>· sin turno</span>}
+          </div>
+          <div style={{color:C.muted,fontSize:11,marginTop:2}}>
+            📋 {d.tomadas} de {d.cols.length} clase{d.cols.length===1?"":"s"} con lista · {grupo.students.length} alumnos
+          </div>
+          <div style={{display:"flex",gap:10,marginTop:5,fontSize:11,flexWrap:"wrap"}}>
+            {d.noVino>0&&<span style={{color:C.danger,fontWeight:700}}>🔴 {d.noVino} no vino{d.noVino===1?"":"eron"}</span>}
+            {d.parcial>0&&<span style={{color:C.warning,fontWeight:700}}>🟠 {d.parcial} con faltas</span>}
+            {d.conRetardo>0&&<span style={{color:C.late}}>🕐 {d.conRetardo}</span>}
+            {d.tomadas>0&&!d.noVino&&!d.parcial&&<span style={{color:C.success}}>✅ Sin faltas</span>}
+            {d.tomadas===0&&<span style={{color:C.muted}}>⏳ Sin listas todavía</span>}
           </div>
         </div>
-        <div style={{textAlign:"right",flexShrink:0}}>
-          <div style={{fontSize:11,color:C.muted}}>{registered}/{total}</div>
-          <div style={{fontSize:10,color:C.muted,marginTop:2}}>registrados</div>
-        </div>
       </div>
-      <SegBar counts={counts} total={total} height={5}/>
+      <SegBar counts={d.counts} total={d.counts.total} height={5}/>
     </div>
   );
 }
 
-// ── Detalle de grupo ─────────────────────────────────────────────
-function GroupDetail({ session, onClose, selectedDate, isMobile }) {
-  const [filter, setFilter] = useState("all");
-  const getStatus = id => session.attendance[id]?.status || "pending";
-  const students = session.students;
-
-  const counts = session.counts;
-  const pct = students.length > 0
-    ? Math.round(((counts.present+counts.late+counts.excused)/students.length)*100) : 0;
-
-  const filtered = students.filter(s => filter==="all" ? true : getStatus(s.id)===filter);
+// ── Sábana del día de un grupo ───────────────────────────────────
+function GroupDetail({ grupo, onClose, selectedDate, isMobile }) {
+  const [filter, setFilter] = useState("all"); // all | faltas | novino | late
+  const d = grupo.dia;
+  const rows = d.rows.filter(r => filter==="all" ? true : filter==="faltas" ? r.absent>0 : filter==="novino" ? r.noVino : r.late>0);
+  const cell = isMobile ? 26 : 32;
+  const tpl = `minmax(0,1fr) repeat(${d.cols.length},${cell}px) ${isMobile?44:56}px`;
 
   return (
     <div style={{animation:"fadeUp .3s ease both"}}>
@@ -112,94 +106,103 @@ function GroupDetail({ session, onClose, selectedDate, isMobile }) {
           ← Volver a grupos
         </button>
       )}
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:isMobile?"16px 14px":"22px 24px",marginBottom:16,position:"relative"}}>
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:isMobile?"16px 14px":"20px 22px",marginBottom:14,position:"relative"}}>
         {!isMobile && <button className="btn" onClick={onClose}
-          style={{position:"absolute",top:14,right:14,background:`${C.border}`,color:C.muted,border:"none",borderRadius:8,padding:"4px 10px",fontSize:13}}>
-          ✕
-        </button>}
-        <div style={{display:"flex",alignItems:"center",gap:isMobile?12:18,marginBottom:16}}>
-          <Ring pct={pct} size={isMobile?64:80} stroke={7}/>
+          style={{position:"absolute",top:14,right:14,background:`${C.border}`,color:C.muted,border:"none",borderRadius:8,padding:"4px 10px",fontSize:13}}>✕</button>}
+        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+          <Ring pct={d.pct} size={isMobile?60:72} stroke={7}/>
           <div style={{minWidth:0}}>
-            <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:isMobile?16:18,color:C.text,overflowWrap:"anywhere"}}>{session.name}</div>
-            <div style={{color:C.muted,fontSize:13,marginTop:4}}>👤 {session.ownerName}</div>
-            <div style={{color:C.muted,fontSize:12,marginTop:2}}>📅 {fmtDate(selectedDate)}</div>
+            <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:isMobile?18:20}}>Grupo {grupo.name}</div>
+            <div style={{color:C.muted,fontSize:12,marginTop:3}}>📅 {fmtDate(selectedDate)}{grupo.turno?` · ${TURNOS[grupo.turno].icon} ${TURNOS[grupo.turno].label}`:""}</div>
+            <div style={{fontSize:12,marginTop:4,display:"flex",gap:10,flexWrap:"wrap"}}>
+              <span style={{color:C.danger,fontWeight:700}}>🔴 {d.noVino} no vino</span>
+              <span style={{color:C.warning,fontWeight:700}}>🟠 {d.parcial} con faltas</span>
+              <span style={{color:C.muted}}>{grupo.students.length} alumnos</span>
+            </div>
           </div>
         </div>
+        {/* Clases del día (columnas) */}
+        {d.cols.length===0 ? (
+          <div style={{fontSize:12,color:C.muted}}>No hay clases programadas ni listas tomadas este día.</div>
+        ) : (
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:5}}>
+            {d.cols.map((c,i)=>(
+              <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",minWidth:0}}>
+                <span style={{width:20,height:20,borderRadius:6,background:`${C.accent}33`,color:C.text,fontWeight:800,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</span>
+                <span style={{color:C.teal,fontWeight:700,flexShrink:0,minWidth:38}}>{c.inicio||"—"}</span>
+                <span style={{flex:1,minWidth:0,overflowWrap:"anywhere"}}><b>{c.materia}</b> <span style={{color:C.muted}}>· {c.docente}</span></span>
+                {c.tomada ? <span style={{color:C.success,fontSize:11,flexShrink:0}}>✓ lista</span> : <span style={{color:C.muted,fontSize:11,flexShrink:0}}>⏳ pendiente</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:6,marginBottom:12}}>
-          {[
-            {label:"Presentes",  v:counts.present, color:C.success, icon:"✅"},
-            {label:"Retardos",   v:counts.late,    color:C.late,    icon:"🕐"},
-            {label:"Justif.",    v:counts.excused, color:C.excused, icon:"📝"},
-            {label:"Ausentes",   v:counts.absent,  color:C.danger,  icon:"❌"},
-            {label:"Pendientes", v:counts.pending, color:C.muted,   icon:"⏳"},
-          ].map(st=>(
-            <div key={st.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 2px",textAlign:"center",minWidth:0}}>
-              <div style={{fontSize:18}}>{st.icon}</div>
-              <div style={{fontSize:20,fontWeight:700,color:st.color,fontFamily:"'Sora',sans-serif"}}>{st.v}</div>
-              <div style={{color:C.muted,fontSize:10,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.label}</div>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
+        {[["all","Todos",C.accent,d.rows.length],["faltas","Con faltas",C.warning,d.noVino+d.parcial],["novino","No vino",C.danger,d.noVino],["late","Retardos",C.late,d.conRetardo]].map(([f,l,color,n])=>(
+          <button key={f} className="btn chip" onClick={()=>setFilter(f)}
+            style={{background:filter===f?`${color}22`:"transparent",color:filter===f?color:C.muted,borderColor:filter===f?color:C.border}}>
+            {l} ({n})
+          </button>
+        ))}
+      </div>
+
+      {d.cols.length===0 ? null : rows.length===0 ? <Empty icon="👥" msg="Sin alumnos en este filtro"/> : (
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:tpl,gap:3,padding:"7px 10px",background:C.surface,fontSize:10,color:C.muted,fontWeight:700,alignItems:"center"}}>
+            <span>ALUMNO</span>
+            {d.cols.map((c,i)=><span key={c.id} title={`${c.inicio||""} ${c.materia}`} style={{textAlign:"center"}}>{i+1}</span>)}
+            <span style={{textAlign:"right"}}>FALTAS</span>
+          </div>
+          {rows.map(r=>(
+            <div key={r.student.id} style={{display:"grid",gridTemplateColumns:tpl,gap:3,padding:"6px 10px",borderTop:`1px solid ${C.border}66`,alignItems:"center",fontSize:12,background:r.noVino?`${C.danger}10`:"transparent"}}>
+              <span style={{overflowWrap:"anywhere",lineHeight:1.2}}>{r.student.name}</span>
+              {d.cols.map(c=>{
+                const st = r.cells[c.id]?.status || (c.tomada ? "pending" : null);
+                const cfg = st ? STATUS[st] : null;
+                return (
+                  <span key={c.id} title={cfg ? `${c.materia}: ${cfg.label}${r.cells[c.id]?.reason?" — "+r.cells[c.id].reason:""}` : `${c.materia}: sin lista`}
+                    style={{height:cell-6,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?11:12,
+                      background:cfg?`${cfg.color}22`:"transparent",border:`1px solid ${cfg?cfg.color+"55":C.border}`,color:cfg?cfg.color:C.muted}}>
+                    {cfg ? (st==="present"?"✓":st==="absent"?"✕":st==="late"?"R":st==="excused"?"J":"·") : ""}
+                  </span>
+                );
+              })}
+              <span style={{textAlign:"right",fontWeight:700,fontSize:11,color:r.noVino?C.danger:r.absent?C.warning:C.muted}}>
+                {r.noVino ? "No vino" : r.reg ? `${r.absent}/${r.reg}` : "—"}
+              </span>
             </div>
           ))}
-        </div>
-        <SegBar counts={counts} total={students.length} height={8}/>
-      </div>
-
-      <div className="tabs-scroll" style={{marginBottom:12}}>
-        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-          {[["all","Todos",C.accent],["present","Presentes",C.success],["late","Retardos",C.late],
-            ["excused","Justificadas",C.excused],["absent","Ausentes",C.danger],["pending","Pendientes",C.muted]].map(([f,l,color])=>(
-            <button key={f} className="btn chip" onClick={()=>setFilter(f)}
-              style={{background:filter===f?`${color}22`:"transparent",color:filter===f?color:C.muted,borderColor:filter===f?color:C.border}}>
-              {l} {filter===f&&`(${filtered.length})`}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {filtered.length===0 ? <Empty icon="👥" msg="Sin alumnos en este filtro"/> : (
-        <div style={isMobile?{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:6}:{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:6,maxHeight:"calc(100vh - 420px)",overflowY:"auto",paddingRight:4}}>
-          {filtered.map((s,i)=>{
-            const st  = getStatus(s.id);
-            const cfg = STATUS[st];
-            const reason = session.attendance[s.id]?.reason||"";
-            return (
-              <div key={s.id} style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"10px 12px",minWidth:0,display:"flex",alignItems:"center",gap:12,animation:`slideIn .2s ease both`,animationDelay:`${i*.015}s`}}>
-                <div style={{width:32,height:32,borderRadius:8,background:`${cfg.color}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:cfg.color,flexShrink:0}}>
-                  {s.name.charAt(0).toUpperCase()}
-                </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:500,fontSize:13,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-                  {st==="excused"&&reason&&<div style={{fontSize:10,color:C.muted,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📝 {reason}</div>}
-                </div>
-                <span style={{background:`${cfg.color}18`,color:cfg.color,border:`1px solid ${cfg.color}33`,borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:700,flexShrink:0}}>
-                  {cfg.icon} {cfg.label}
-                </span>
-              </div>
-            );
-          })}
+          <div style={{padding:"7px 10px",fontSize:10,color:C.muted,borderTop:`1px solid ${C.border}66`}}>✓ presente · ✕ falta · R retardo · J justificada · · sin registro</div>
         </div>
       )}
     </div>
   );
 }
 
-// ── Informe de faltas — plano, cruzando todos los grupos ──────────
+// ── Informe de faltas: una fila por alumno y día ─────────────────
 function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, setStatusFilter }) {
+  const q = search.toLowerCase();
   const filtered = rows.filter(r => {
-    const matchSearch = !search ||
-      r.student.name.toLowerCase().includes(search.toLowerCase()) ||
-      r.sessionName.toLowerCase().includes(search.toLowerCase()) ||
-      r.ownerName.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter==="all" || r.status===statusFilter;
+    const matchSearch = !q || r.student.name.toLowerCase().includes(q) || r.grupo.name.toLowerCase().includes(q) ||
+      r.items.some(it => it.clase.materia.toLowerCase().includes(q) || it.clase.docente.toLowerCase().includes(q));
+    const matchStatus = statusFilter==="all" || (statusFilter==="novino" && r.noVino) || (statusFilter==="parcial" && r.absent>0 && !r.noVino)
+      || (statusFilter==="late" && r.late>0) || (statusFilter==="excused" && r.excused>0);
     return matchSearch && matchStatus;
   });
+  const n = (k) => rows.filter(r => k==="novino" ? r.noVino : k==="parcial" ? r.absent>0 && !r.noVino : k==="late" ? r.late>0 : r.excused>0).length;
 
   async function exportXlsx() {
     const XLSX = await import("xlsx");
-    const header = ["Alumno","Grupo","Docente","Estado","Motivo"];
-    const dataRows = filtered.map(r => [r.student.name, r.sessionName, r.ownerName, STATUS[r.status]?.label||r.status, r.reason||""]);
+    const header = ["Grupo","Alumno","Situación","Faltas","Clases con lista","Detalle por clase"];
+    const dataRows = filtered.map(r => [r.grupo.name, r.student.name,
+      r.noVino ? "No vino" : r.absent ? "Faltó a algunas clases" : r.late ? "Retardo" : "Justificada",
+      r.absent, r.reg,
+      r.items.map(it => `${it.clase.inicio||""} ${it.clase.materia} (${it.clase.docente}): ${STATUS[it.status]?.label}${it.reason?" — "+it.reason:""}`).join("; ")]);
+    const ws = XLSX.utils.aoa_to_sheet([[`Faltas y retardos — ${selectedDate}`], [], header, ...dataRows]);
+    ws["!cols"] = [{wch:8},{wch:34},{wch:22},{wch:7},{wch:15},{wch:90}];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header,...dataRows]), "Faltas");
+    XLSX.utils.book_append_sheet(wb, ws, "Faltas");
     XLSX.writeFile(wb, `faltas_${selectedDate}.xlsx`);
   }
 
@@ -207,7 +210,7 @@ function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, se
     <div style={{animation:"fadeUp .3s ease both"}}>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
         <span>🔍</span>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar alumno, grupo o docente..."
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar alumno, grupo, materia o docente..."
           style={{flex:1,minWidth:0,background:"transparent",border:"none",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
         {search&&<button className="btn" onClick={()=>setSearch("")} style={{background:"none",color:C.muted,border:"none",fontSize:15,padding:"0 2px"}}>×</button>}
         <button className="btn" onClick={exportXlsx}
@@ -216,10 +219,10 @@ function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, se
         </button>
       </div>
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-        {[["all","Todos",C.accent],["absent","Ausentes",C.danger],["late","Retardos",C.late],["excused","Justificadas",C.excused]].map(([k,l,color])=>(
+        {[["all","Todos",C.accent,rows.length],["novino","No vino",C.danger,n("novino")],["parcial","Faltó a algunas",C.warning,n("parcial")],["late","Retardos",C.late,n("late")],["excused","Justificadas",C.excused,n("excused")]].map(([k,l,color,c])=>(
           <button key={k} className="btn chip" onClick={()=>setStatusFilter(k)}
             style={{background:statusFilter===k?`${color}22`:"transparent",color:statusFilter===k?color:C.muted,borderColor:statusFilter===k?color:C.border}}>
-            {l} {k!=="all"&&`(${rows.filter(r=>r.status===k).length})`}
+            {l} ({c})
           </button>
         ))}
       </div>
@@ -228,20 +231,28 @@ function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, se
       ) : (
         <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:6}}>
           {filtered.map((r,i) => {
-            const cfg = STATUS[r.status];
+            const color = r.noVino ? C.danger : r.absent ? C.warning : r.late ? C.late : C.excused;
             return (
-              <div key={r.student.id+r.sessionId} className="row-hover" style={{background:C.card,border:`1px solid ${cfg.color}22`,borderLeft:`3px solid ${cfg.color}`,borderRadius:10,padding:"11px 12px",display:"flex",alignItems:"center",gap:10,minWidth:0,animation:`slideIn .2s ease both`,animationDelay:`${Math.min(i,20)*.015}s`,flexWrap:"wrap"}}>
-                <div style={{width:34,height:34,borderRadius:9,background:`${cfg.color}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:cfg.color,flexShrink:0}}>
-                  {r.student.name.charAt(0).toUpperCase()}
+              <div key={r.student.id} className="row-hover" style={{background:C.card,border:`1px solid ${color}33`,borderLeft:`3px solid ${color}`,borderRadius:10,padding:"10px 12px",minWidth:0,animation:`slideIn .2s ease both`,animationDelay:`${Math.min(i,20)*.015}s`}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 160px",minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{r.student.name}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:1}}>👥 Grupo {r.grupo.name}</div>
+                  </div>
+                  <span style={{background:`${color}18`,color,border:`1px solid ${color}44`,borderRadius:6,padding:"3px 9px",fontSize:11,fontWeight:700,flexShrink:0}}>
+                    {r.noVino ? "🔴 No vino" : r.absent ? `🟠 Faltó a ${r.absent} de ${r.reg}` : r.late ? "🕐 Retardo" : "📝 Justificada"}
+                  </span>
                 </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:600,fontSize:13,color:C.text}}>{r.student.name}</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:1}}>📚 {r.sessionName} · 👤 {r.ownerName}</div>
-                  {r.status==="excused"&&r.reason&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📝 {r.reason}</div>}
-                </div>
-                <span style={{background:`${cfg.color}18`,color:cfg.color,border:`1px solid ${cfg.color}44`,borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>
-                  {cfg.icon} {cfg.label}
-                </span>
+                {!r.noVino && (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:7}}>
+                    {r.items.map(it => {
+                      const cfg = STATUS[it.status];
+                      return <span key={it.clase.id} title={it.reason||""} style={{background:`${cfg.color}18`,color:cfg.color,border:`1px solid ${cfg.color}44`,borderRadius:6,padding:"2px 7px",fontSize:11}}>
+                        {cfg.icon} {it.clase.inicio ? it.clase.inicio+" " : ""}{it.clase.materia} <span style={{opacity:.75}}>· {it.clase.docente}</span>{it.reason?` · ${it.reason}`:""}
+                      </span>;
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -253,52 +264,81 @@ function AbsenceReport({ rows, selectedDate, search, setSearch, statusFilter, se
 
 // ── ViewerApp ────────────────────────────────────────────────────
 export default function ViewerApp({ user, onLogout }) {
-  const [tab, setTab]                     = useState("grupos"); // grupos | ausencias
+  const [tab, setTab]                     = useState("grupos"); // grupos | ausencias | reportes
   const [selectedDate, setSelectedDate]   = useState(today());
-  const [sessions, setSessions]           = useState([]);
+  const [grupos, setGrupos]               = useState([]);
   const [selectedId, setSelectedId]       = useState(null);
   const [loading, setLoading]             = useState(true);
   const [search, setSearch]               = useState("");
   const [reportSearch, setReportSearch]   = useState("");
   const [statusFilter, setStatusFilter]   = useState("all");
   const [lastUpdate, setLastUpdate]       = useState(null);
-  const [filterRisk, setFilterRisk]       = useState("all"); // all | ok | warning | danger
+  const [filterRisk, setFilterRisk]       = useState("all"); // all | ok | warning | danger | pending
   const isMobile = useIsMobile();
 
   async function loadAll(date) {
     setLoading(true);
-    const [{ data: sessData }, { data: studData }, { data: attData }] = await Promise.all([
-      sb.from("sessions").select("id,name,date,turno,owner_id,owner:profiles(id,name)").order("name"),
-      fetchAll(() => sb.from("students").select("id,name,session_id").order("id")),
+    const [{ data: grpData }, { data: sessData }, { data: studData }, { data: attData }] = await Promise.all([
+      fetchAll(() => sb.from("grupos").select("id,name,turno").order("name").order("id")),
+      fetchAll(() => sb.from("sessions").select("id,name,materia,horario,grupo_id,owner:profiles(id,name)").order("id")),
+      fetchAll(() => sb.from("students").select("id,name,grupo_id").eq("active", true).order("name").order("id")),
       fetchAll(() => sb.from("attendance").select("session_id,student_id,status,reason").eq("date", date).order("id")),
     ]);
 
-    const studentsBySession = {};
-    (studData||[]).forEach(s => {
-      (studentsBySession[s.session_id] ??= []).push(s);
-    });
-    const attByStudent = {};
-    (attData||[]).forEach(a => { attByStudent[a.student_id] = a; });
+    const studentsByGrupo = {};
+    (studData||[]).forEach(s => { if (s.grupo_id) (studentsByGrupo[s.grupo_id] ??= []).push(s); });
+    const clasesByGrupo = {};
+    (sessData||[]).forEach(s => { if (s.grupo_id) (clasesByGrupo[s.grupo_id] ??= []).push({
+      id: s.id, materia: s.materia || s.name, docente: s.owner?.name || "—", horario: s.horario || [],
+    }); });
+    const att = {}; // session_id -> student_id -> rec
+    (attData||[]).forEach(a => { (att[a.session_id] ??= {})[a.student_id] = a; });
 
     // Cada Prefectura ve los grupos de su turno y los que aún no tienen turno asignado.
-    const mine = (sessData||[]).filter(s => !user.turno || !s.turno || s.turno === user.turno);
-    const enriched = mine.map(s => {
-      const studs = studentsBySession[s.id] || [];
-      const counts = { present:0, late:0, excused:0, absent:0, pending:0 };
-      const attendance = {};
-      studs.forEach(st => {
-        const rec = attByStudent[st.id];
-        const status = rec?.status || "pending";
-        counts[status]++;
-        attendance[st.id] = { status, reason: rec?.reason || "" };
+    const mine = (grpData||[]).filter(g => !user.turno || !g.turno || g.turno === user.turno);
+    const enriched = mine.map(g => {
+      const students = studentsByGrupo[g.id] || [];
+      const clases = clasesByGrupo[g.id] || [];
+      // Columnas del día: clases programadas ese día o con lista tomada
+      const cols = clases
+        .filter(c => tieneClase(c.horario, date) || att[c.id])
+        .map(c => {
+          const b = bloquesDelDia(c.horario, date);
+          return { ...c, inicio: inicioDelDia(c.horario, date), fin: b.length ? b[b.length-1].fin : null, tomada: !!att[c.id] };
+        })
+        .sort((a, b) => (a.inicio || "99").localeCompare(b.inicio || "99") || a.materia.localeCompare(b.materia));
+      const counts = { present:0, late:0, excused:0, absent:0, pending:0, total:0 };
+      const rows = students.map(st => {
+        const cells = {}; let reg = 0, absent = 0, late = 0, excused = 0;
+        cols.forEach(c => {
+          if (!c.tomada) return;
+          counts.total++;
+          const rec = att[c.id]?.[st.id];
+          if (!rec) { counts.pending++; return; }
+          cells[c.id] = { status: rec.status, reason: rec.reason || "" };
+          if (counts[rec.status] !== undefined) counts[rec.status]++;
+          if (rec.status !== "pending") reg++;
+          if (rec.status === "absent") absent++;
+          if (rec.status === "late") late++;
+          if (rec.status === "excused") excused++;
+        });
+        const noVino = reg >= 2 && absent === reg;
+        return { student: st, cells, reg, absent, late, excused, noVino };
       });
-      const total = studs.length;
-      const pct = total > 0 ? Math.round(((counts.present+counts.late+counts.excused)/total)*100) : null;
+      const regTot = counts.present + counts.late + counts.excused + counts.absent;
+      const pct = regTot > 0 ? Math.round(((counts.present + counts.late + counts.excused) / regTot) * 100) : null;
       const risk = pct===null?"pending":pct>=80?"ok":pct>=60?"warning":"danger";
-      return { ...s, ownerName:s.owner?.name||"—", total, counts, pct, risk, students: studs, attendance };
+      const dia = {
+        cols, rows, counts, pct, risk,
+        tomadas: cols.filter(c => c.tomada).length,
+        noVino: rows.filter(r => r.noVino).length,
+        parcial: rows.filter(r => r.absent > 0 && !r.noVino).length,
+        conRetardo: rows.filter(r => r.late > 0).length,
+      };
+      return { ...g, students, clases, dia };
     });
 
-    setSessions(enriched);
+    setGrupos(enriched);
     setLastUpdate(new Date());
     setLoading(false);
   }
@@ -309,43 +349,46 @@ export default function ViewerApp({ user, onLogout }) {
     return () => clearInterval(iv);
   }, [selectedDate, user.turno]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selected = sessions.find(s => s.id === selectedId) || null;
+  const selected = grupos.find(g => g.id === selectedId) || null;
 
-  // Totales globales
-  const G = sessions.reduce((a,s)=>({
-    present: a.present+s.counts.present, late: a.late+s.counts.late,
-    excused: a.excused+s.counts.excused, absent: a.absent+s.counts.absent,
-    pending: a.pending+s.counts.pending, total: a.total+s.total,
+  // Totales del día (cada clase cuenta por separado)
+  const G = grupos.reduce((a,g)=>({
+    present: a.present+g.dia.counts.present, late: a.late+g.dia.counts.late,
+    excused: a.excused+g.dia.counts.excused, absent: a.absent+g.dia.counts.absent,
+    pending: a.pending+g.dia.counts.pending, total: a.total+g.dia.counts.total,
   }), {present:0,late:0,excused:0,absent:0,pending:0,total:0});
-  const globalPct = G.total>0 ? Math.round(((G.present+G.late+G.excused)/G.total)*100) : null;
+  const regG = G.present+G.late+G.excused+G.absent;
+  const globalPct = regG>0 ? Math.round(((G.present+G.late+G.excused)/regG)*100) : null;
+  const noVinoTot  = grupos.reduce((a,g)=>a+g.dia.noVino,0);
+  const parcialTot = grupos.reduce((a,g)=>a+g.dia.parcial,0);
 
   const riskCount = {
-    danger:  sessions.filter(s=>s.risk==="danger").length,
-    warning: sessions.filter(s=>s.risk==="warning").length,
-    ok:      sessions.filter(s=>s.risk==="ok").length,
-    pending: sessions.filter(s=>s.risk==="pending").length,
+    danger:  grupos.filter(g=>g.dia.risk==="danger").length,
+    warning: grupos.filter(g=>g.dia.risk==="warning").length,
+    ok:      grupos.filter(g=>g.dia.risk==="ok").length,
+    pending: grupos.filter(g=>g.dia.risk==="pending").length,
   };
 
-  const displayed = sessions.filter(s => {
-    const matchSearch = s.name.toLowerCase().includes(search.toLowerCase()) ||
-                        s.ownerName.toLowerCase().includes(search.toLowerCase());
-    const matchRisk = filterRisk==="all" || s.risk===filterRisk;
+  const qs = search.toLowerCase();
+  const displayed = grupos.filter(g => {
+    const matchSearch = !qs || g.name.toLowerCase().includes(qs) || g.clases.some(c => c.docente.toLowerCase().includes(qs) || c.materia.toLowerCase().includes(qs));
+    const matchRisk = filterRisk==="all" || g.dia.risk===filterRisk;
     return matchSearch && matchRisk;
   });
 
-  // Informe plano de faltas/retardos/justificantes, cruzando todos los grupos
+  // Informe de faltas: una fila por alumno con todas sus clases del día
   const absenceRows = useMemo(() => {
     const rows = [];
-    sessions.forEach(s => {
-      s.students.forEach(st => {
-        const rec = s.attendance[st.id];
-        if (rec && (rec.status==="absent"||rec.status==="late"||rec.status==="excused")) {
-          rows.push({ student: st, sessionId: s.id, sessionName: s.name, ownerName: s.ownerName, status: rec.status, reason: rec.reason });
-        }
+    grupos.forEach(g => {
+      g.dia.rows.forEach(r => {
+        if (!r.absent && !r.late && !r.excused) return;
+        const items = g.dia.cols.filter(c => r.cells[c.id] && r.cells[c.id].status !== "present" && r.cells[c.id].status !== "pending")
+          .map(c => ({ clase: c, status: r.cells[c.id].status, reason: r.cells[c.id].reason }));
+        rows.push({ ...r, grupo: g, items });
       });
     });
-    return rows.sort((a,b) => a.student.name.localeCompare(b.student.name));
-  }, [sessions]);
+    return rows.sort((a,b) => (b.noVino - a.noVino) || (b.absent - a.absent) || a.grupo.name.localeCompare(b.grupo.name) || a.student.name.localeCompare(b.student.name));
+  }, [grupos]);
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Inter',sans-serif",color:C.text}}>
@@ -358,8 +401,8 @@ export default function ViewerApp({ user, onLogout }) {
         <div style={{maxWidth:1400,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
             <BrandMark size={28}/>
-            <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
-            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:.5,flexShrink:0}}>PREFECTURA{user.turno?` · ${TURNOS[user.turno].label.toUpperCase()}`:""}</span>
+            <span className="hide-mobile" style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
+            <span style={{background:`${C.teal}22`,color:C.teal,border:`1px solid ${C.teal}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,letterSpacing:.5,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>PREFECTURA{user.turno?` · ${TURNOS[user.turno].label.toUpperCase()}`:""}</span>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
             {lastUpdate&&<span className="hide-mobile" style={{fontSize:11,color:C.muted}}>🔄 {lastUpdate.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</span>}
@@ -404,7 +447,7 @@ export default function ViewerApp({ user, onLogout }) {
                 Hoy
               </button>
             )}
-            <span style={{color:C.muted,fontSize:12}}>{fmtDate(selectedDate)} · {sessions.length} grupos</span>
+            <span style={{color:C.muted,fontSize:12}}>{fmtDate(selectedDate)} · {grupos.length} grupos</span>
           </div>}
         </div>
 
@@ -414,16 +457,15 @@ export default function ViewerApp({ user, onLogout }) {
               {!isMobile && <Ring pct={globalPct} size={100} stroke={9}/>}
               <div style={{flex:"1 1 260px",minWidth:0}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:1.5,marginBottom:10,display:"flex",justifyContent:"space-between"}}>
-                  <span>RESUMEN INSTITUCIONAL</span>
+                  <span>RESUMEN DEL DÍA</span>
                   {isMobile && <span style={{color:pctColor(globalPct),letterSpacing:0,fontSize:13}}>{globalPct!==null?globalPct+"% asistencia":"—"}</span>}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:6,marginBottom:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:6,marginBottom:10}}>
                   {[
-                    {label:"Presentes",  v:G.present, color:C.success, icon:"✅"},
-                    {label:"Retardos",   v:G.late,    color:C.late,    icon:"🕐"},
-                    {label:"Justif.",    v:G.excused, color:C.excused, icon:"📝"},
-                    {label:"Ausentes",   v:G.absent,  color:C.danger,  icon:"❌"},
-                    {label:"Pendientes", v:G.pending, color:C.muted,   icon:"⏳"},
+                    {label:"No vinieron",   v:noVinoTot,  color:C.danger,  icon:"🔴"},
+                    {label:"Faltó a algunas",v:parcialTot, color:C.warning, icon:"🟠"},
+                    {label:"Faltas (clases)",v:G.absent,   color:C.danger,  icon:"❌"},
+                    {label:"Retardos",      v:G.late,     color:C.late,    icon:"🕐"},
                   ].map(st=>(
                     <div key={st.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 2px",textAlign:"center",minWidth:0}}>
                       <div style={{fontSize:16}}>{st.icon}</div>
@@ -440,7 +482,7 @@ export default function ViewerApp({ user, onLogout }) {
                   {label:"Asistencia alta",  count:riskCount.ok,      color:C.success, icon:"🟢"},
                   {label:"Asistencia media", count:riskCount.warning,  color:C.warning, icon:"🟡"},
                   {label:"Asistencia baja",  count:riskCount.danger,   color:C.danger,  icon:"🔴"},
-                  {label:"Sin registros",    count:riskCount.pending,  color:C.muted,   icon:"⚪"},
+                  {label:"Sin listas",       count:riskCount.pending,  color:C.muted,   icon:"⚪"},
                 ].map(r=>(
                   <div key={r.label} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
                     <span>{r.icon}</span>
@@ -456,21 +498,21 @@ export default function ViewerApp({ user, onLogout }) {
         {loading ? (
           <div style={{textAlign:"center",padding:"60px 0",color:C.muted,fontSize:14}}>Cargando...</div>
         ) : tab==="reportes" ? (
-          <ViewerReports sessions={sessions}/>
+          <ViewerReports grupos={grupos}/>
         ) : tab==="ausencias" ? (
           <AbsenceReport rows={absenceRows} selectedDate={selectedDate} search={reportSearch} setSearch={setReportSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter}/>
         ) : (
-          <div style={{display:"grid",gridTemplateColumns:(selected&&!isMobile)?"minmax(280px,360px) minmax(0,1fr)":"minmax(0,1fr)",gap:20,alignItems:"start"}}>
+          <div style={{display:"grid",gridTemplateColumns:(selected&&!isMobile)?"minmax(280px,340px) minmax(0,1fr)":"minmax(0,1fr)",gap:20,alignItems:"start"}}>
 
             {!(isMobile && selected) && <div style={{minWidth:0}}>
               <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
                 <span>🔍</span>
-                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar grupo o docente..."
-                  style={{flex:1,background:"transparent",border:"none",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar grupo, materia o docente..."
+                  style={{flex:1,minWidth:0,background:"transparent",border:"none",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
                 {search&&<button className="btn" onClick={()=>setSearch("")} style={{background:"none",color:C.muted,border:"none",fontSize:15,padding:"0 2px"}}>×</button>}
               </div>
               <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
-                {[["all","Todos",C.accent],["ok","Alta",C.success],["warning","Media",C.warning],["danger","Baja",C.danger],["pending","Sin reg.",C.muted]].map(([k,l,color])=>(
+                {[["all","Todos",C.accent],["ok","Alta",C.success],["warning","Media",C.warning],["danger","Baja",C.danger],["pending","Sin listas",C.muted]].map(([k,l,color])=>(
                   <button key={k} className="btn chip" onClick={()=>setFilterRisk(k)}
                     style={{background:filterRisk===k?`${color}22`:"transparent",color:filterRisk===k?color:C.muted,borderColor:filterRisk===k?color:C.border,fontSize:11,padding:"4px 10px"}}>
                     {l}
@@ -480,8 +522,8 @@ export default function ViewerApp({ user, onLogout }) {
 
               {displayed.length===0 ? <Empty icon="📚" msg="Sin grupos"/> : (
                 <div style={isMobile?{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8}:{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8,maxHeight:"calc(100vh - 340px)",overflowY:"auto",paddingRight:4}}>
-                  {displayed.map(s=>(
-                    <GroupCard key={s.id} session={s} isActive={selectedId===s.id} onClick={()=>{ setSelectedId(s.id); if(isMobile) window.scrollTo({top:0}); }}/>
+                  {displayed.map(g=>(
+                    <GroupCard key={g.id} grupo={g} isActive={selectedId===g.id} onClick={()=>{ setSelectedId(g.id); if(isMobile) window.scrollTo({top:0}); }}/>
                   ))}
                 </div>
               )}
@@ -489,7 +531,7 @@ export default function ViewerApp({ user, onLogout }) {
 
             {selected && (
               <div style={isMobile?{minWidth:0}:{position:"sticky",top:76,minWidth:0}}>
-                <GroupDetail session={selected} selectedDate={selectedDate} isMobile={isMobile} onClose={()=>setSelectedId(null)}/>
+                <GroupDetail grupo={selected} selectedDate={selectedDate} isMobile={isMobile} onClose={()=>setSelectedId(null)}/>
               </div>
             )}
           </div>

@@ -9,6 +9,8 @@ import ImportPreviewModal from "./ImportPreviewModal";
 import ReportModule from "./ReportModule";
 import TutorModal from "./TutorModal";
 import TutoriaModal from "./TutoriaModal";
+import ClaseForm from "./ClaseForm";
+import { horasDelDia, enCurso, inicioDelDia, resumenHorario, horaMX, nombreClase, tieneClase } from "../lib/horario";
 import { sendWhatsApp, buildTutoriaMessage } from "../lib/whatsapp";
 import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStudents";
 export default function TeacherApp({ user, onLogout }) {
@@ -25,10 +27,8 @@ export default function TeacherApp({ user, onLogout }) {
   const [searchQuery, setSearchQuery]   = useState("");
   const [searchResult, setSearchResult] = useState(null);
   const [filter, setFilter]             = useState("all");
-  const [showNewSess, setShowNewSess]   = useState(false);
-  const [newSessName, setNewSessName]   = useState("");
-  const [newSessDate, setNewSessDate]   = useState(today());
-  const [newSessTurno, setNewSessTurno] = useState("matutino");
+  const [grupos, setGrupos]             = useState([]);
+  const [claseForm, setClaseForm]       = useState(null); // null | {initial: session|null}
   const [toast, setToast]               = useState(null);
   const [saving, setSaving]             = useState(false);
   const [saveError, setSaveError]       = useState(false);
@@ -44,8 +44,12 @@ export default function TeacherApp({ user, onLogout }) {
   const isViewer = user.role === "viewer";
 
   async function loadSessions() {
-    const { data } = await sb.from("sessions").select("*").eq("owner_id", user.id).order("created_at", { ascending:false });
+    const [{ data }, { data:gs }] = await Promise.all([
+      sb.from("sessions").select("*, grupo:grupos(id,name,turno)").eq("owner_id", user.id).order("created_at", { ascending:false }),
+      sb.from("grupos").select("id,name,turno").order("name"),
+    ]);
     setSessions(data || []);
+    setGrupos(gs || []);
   }
 
   useEffect(() => { (async () => { await loadSessions(); })(); }, []);
@@ -70,7 +74,10 @@ export default function TeacherApp({ user, onLogout }) {
 
   async function selectSession(s) {
     setActiveSess(s);
-    const { data:studs } = await sb.from("students").select("*").eq("session_id", s.id).order("created_at");
+    // La lista de alumnos es la del grupo (compartida por todas sus materias)
+    const { data:studs } = s.grupo_id
+      ? await fetchAll(() => sb.from("students").select("*").eq("grupo_id", s.grupo_id).eq("active", true).order("name").order("id"))
+      : await sb.from("students").select("*").eq("session_id", s.id).order("created_at");
     setStudents(studs || []);
     const { data:attRows } = await fetchAll(() => sb.from("attendance").select("date").eq("session_id", s.id).order("id"));
     const pend = pendingDates(s.id);
@@ -82,7 +89,7 @@ export default function TeacherApp({ user, onLogout }) {
     Object.assign(hm, pend.hours);
     setDateHours(hm);
     const d = today(); setSelectedDate(d);
-    setClassHours(hm[d] || 1);
+    setClassHours(hm[d] || horasDelDia(s.horario, d) || 1);
     await loadAttendanceForDate(s.id, d);
     setFilter("all"); setSearchQuery(""); setSearchResult(null); setLastSaved(null); setSaveError(false);
     setMainTab("attendance"); setView("attendance");
@@ -97,7 +104,7 @@ export default function TeacherApp({ user, onLogout }) {
 
   async function changeDate(d) {
     setSelectedDate(d);
-    setClassHours(dateHours[d] || 1);
+    setClassHours(dateHours[d] || horasDelDia(activeSession.horario, d) || 1);
     await loadAttendanceForDate(activeSession.id, d);
     setFilter("all");
   }
@@ -155,23 +162,37 @@ export default function TeacherApp({ user, onLogout }) {
     setJustifyTarget(null); showToast("📝 Justificación guardada");
   }
 
-  async function createSession() {
-    if (!newSessName.trim()) return;
-    const { data, error } = await sb.from("sessions").insert({ owner_id:user.id, name:newSessName.trim(), date:newSessDate, turno:newSessTurno }).select().single();
-    if (error) { showToast("❌ " + error.message); return; }
-    setSessions(p => [data,...p]); setShowNewSess(false); setNewSessName(""); setNewSessDate(today()); showToast("✅ Creada");
+  // Clase creada o editada desde el formulario (grupo, materia, turno y horario)
+  function onClaseSaved(saved, isNew) {
+    setClaseForm(null);
+    setSessions(p => isNew ? [saved, ...p] : p.map(x => x.id === saved.id ? saved : x));
+    if (saved.grupo && !grupos.some(g => g.id === saved.grupo.id)) setGrupos(p => [...p, saved.grupo].sort((a,b)=>a.name.localeCompare(b.name)));
+    else if (saved.grupo) setGrupos(p => p.map(g => g.id === saved.grupo.id ? { ...g, ...saved.grupo } : g));
+    if (activeSession?.id === saved.id) {
+      setActiveSess(saved);
+      if (!allDates.includes(selectedDate)) setClassHours(horasDelDia(saved.horario, selectedDate) || classHours);
+    }
+    showToast(isNew ? "✅ Clase creada" : "💾 Clase actualizada");
   }
-  // Turno del grupo: decide qué Prefectura (matutino o vespertino) lo ve
+  // Turno del grupo: decide qué Prefectura (matutino o vespertino) lo ve; lo comparten todas sus materias
   async function setTurno(turno) {
-    if (!activeSession || activeSession.turno === turno) return;
-    const { error } = await sb.from("sessions").update({ turno }).eq("id", activeSession.id);
+    if (!activeSession || (activeSession.grupo?.turno || activeSession.turno) === turno) return;
+    const q = activeSession.grupo_id
+      ? sb.from("grupos").update({ turno }).eq("id", activeSession.grupo_id)
+      : sb.from("sessions").update({ turno }).eq("id", activeSession.id);
+    const { error } = await q;
     if (error) { showToast("❌ " + error.message); return; }
-    const updated = { ...activeSession, turno };
+    const updated = { ...activeSession, turno, grupo: activeSession.grupo ? { ...activeSession.grupo, turno } : activeSession.grupo };
     setActiveSess(updated);
-    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
+    setSessions(p => p.map(s => s.grupo_id && s.grupo_id === updated.grupo_id ? { ...s, grupo:{ ...s.grupo, turno } } : s.id === updated.id ? updated : s));
     showToast(`${TURNOS[turno].icon} Prefectura ${TURNOS[turno].label.toLowerCase()}`);
   }
-  async function deleteSession(id) { await sb.from("sessions").delete().eq("id", id); setSessions(p => p.filter(s => s.id !== id)); showToast("🗑️ Eliminada"); }
+  async function deleteSession(s) {
+    if (!window.confirm(`¿Eliminar la clase "${nombreClase(s)}" y toda su asistencia?\nLa lista de alumnos del grupo no se borra.`)) return;
+    const { error } = await sb.from("sessions").delete().eq("id", s.id);
+    if (error) { showToast("❌ " + error.message); return; }
+    setSessions(p => p.filter(x => x.id !== s.id)); showToast("🗑️ Clase eliminada");
+  }
 
   async function handleFileSelected(e) {
     const file = e.target.files[0]; if (!file) return;
@@ -182,11 +203,12 @@ export default function TeacherApp({ user, onLogout }) {
   }
 
   async function confirmImport(selectedRows) {
+    if (!activeSession.grupo_id) { showToast("⚠️ Primero asigna un grupo a esta clase (✏️)"); return; }
     const existing = students.map(s => s.name.toLowerCase());
     const toInsert = selectedRows.filter(r => !existing.includes(r.name.toLowerCase()));
     if (!toInsert.length) { showToast("ℹ️ Todos ya existen"); setImportPreview(null); return; }
     const { data, error } = await sb.from("students").insert(toInsert.map(r => ({
-      session_id: activeSession.id,
+      grupo_id: activeSession.grupo_id,
       name: r.name,
       tutor_name: r.tutorName || null,
       tutor_phone: r.tutorPhone || null,
@@ -194,15 +216,20 @@ export default function TeacherApp({ user, onLogout }) {
     if (error) { showToast("❌ " + error.message); return; }
     setStudents(p => [...p, ...data]);
     setImportPreview(null);
-    showToast(`📥 ${data.length} importados`);
+    showToast(`📥 ${data.length} agregados al grupo ${activeSession.grupo?.name || ""}`);
   }
   async function addStudent(name) {
-    const { data, error } = await sb.from("students").insert({ session_id:activeSession.id, name:name.trim() }).select().single();
+    if (!activeSession.grupo_id) { showToast("⚠️ Primero asigna un grupo a esta clase (✏️)"); return; }
+    const { data, error } = await sb.from("students").insert({ grupo_id:activeSession.grupo_id, name:name.trim() }).select().single();
     if (error) { showToast("❌ " + error.message); return; }
     setStudents(p => [...p, data]);
   }
+  // Baja del grupo: deja de aparecer en todas las materias, pero conserva su historial
   async function removeStudent(id) {
-    await sb.from("students").delete().eq("id", id);
+    const st = students.find(x => x.id === id);
+    if (!window.confirm(`¿Dar de baja a ${st?.name} del grupo ${activeSession.grupo?.name || ""}?\nDejará de aparecer en todas las materias del grupo. Su asistencia anterior se conserva.`)) return;
+    const { error } = await sb.from("students").update({ active:false }).eq("id", id);
+    if (error) { showToast("❌ " + error.message); return; }
     setStudents(p => p.filter(s => s.id !== id));
     setAttendance(p => { const a = {...p}; delete a[id]; return a; });
   }
@@ -211,13 +238,13 @@ export default function TeacherApp({ user, onLogout }) {
     const query = q.trim().toLowerCase(); if (!query || !activeSession) { setSearchResult(null); return; }
     const found = students.find(s => s.name.toLowerCase().includes(query));
     if (!found) { setSearchResult({ notFound:true, query:q }); return; }
-    const { data } = await fetchAll(() => sb.from("attendance").select("date,status,reason").eq("student_id", found.id).order("date", { ascending:false }).order("id"));
+    const { data } = await fetchAll(() => sb.from("attendance").select("date,status,reason").eq("student_id", found.id).eq("session_id", activeSession.id).order("date", { ascending:false }).order("id"));
     setSearchResult({ student:found, history:data||[] }); setView("student-history");
   }
 
   async function handleExport(type) {
     const XLSX = await import("xlsx");
-    const sessName = activeSession?.name || "sesion";
+    const sessName = nombreClase(activeSession) || "sesion";
     const dateList = [...allDates].sort();
     const { data:allAtt } = await fetchAll(() => sb.from("attendance").select("student_id,date,status,reason").eq("session_id", activeSession.id).order("id"));
     const idx = {}; (allAtt||[]).forEach(r => { if (!idx[r.student_id]) idx[r.student_id] = {}; idx[r.student_id][r.date] = { status:r.status, reason:r.reason||"" }; });
@@ -272,13 +299,13 @@ export default function TeacherApp({ user, onLogout }) {
   function notifyParents() {
     const ausentes = students.filter(s=>getStatus(s.id)==="absent"&&s.tutor_phone);
     if(!ausentes.length){showToast("⚠️ Sin faltas con teléfono de papá/mamá registrado");return;}
-    ausentes.forEach(s=>sendWhatsApp({student:s,date:selectedDate,sessionName:activeSession.name,status:"absent",reason:"",teacherName:user.name}));
+    ausentes.forEach(s=>sendWhatsApp({student:s,date:selectedDate,sessionName:nombreClase(activeSession),status:"absent",reason:"",teacherName:user.name}));
     showToast(`📲 ${ausentes.length} mensaje(s) a papás`);
   }
 
   // Aviso a Tutorías: un solo reporte (editable) con docente, materia y alumnos con falta
   function buildTutoria(contactName) {
-    return buildTutoriaMessage({ contactName, date:selectedDate, sessionName:activeSession.name,
+    return buildTutoriaMessage({ contactName, date:selectedDate, sessionName:nombreClase(activeSession),
       absentStudents:students.filter(s=>getStatus(s.id)==="absent"), totalStudents:students.length, teacherName:user.name });
   }
   function notifyTutoria() {
@@ -313,7 +340,8 @@ export default function TeacherApp({ user, onLogout }) {
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
       {showTutoria && activeSession && <TutoriaModal session={activeSession} absentCount={counts.absent} buildMessage={buildTutoria} onSave={saveTutoriaContact} onSent={()=>{setShowTutoria(false);showToast("📲 Reporte a Tutorías abierto");}} onClose={()=>setShowTutoria(false)}/>}
-      {tutorTarget && <TutorModal student={tutorTarget} sessionName={activeSession?.name} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
+      {tutorTarget && <TutorModal student={tutorTarget} sessionName={nombreClase(activeSession)} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
+      {claseForm && <ClaseForm user={user} grupos={grupos} initial={claseForm.initial} onSaved={onClaseSaved} onClose={()=>setClaseForm(null)}/>}
       {importPreview && <ImportPreviewModal rows={importPreview} existingNames={students.map(s=>s.name)} onConfirm={confirmImport} onClose={()=>setImportPreview(null)}/>}
 
       <div style={{height:3,background:BRAND.stripe}}/>
@@ -323,7 +351,7 @@ export default function TeacherApp({ user, onLogout }) {
             {view!=="sessions"&&<button className="btn" onClick={()=>{if(view==="student-history"){setView("attendance");setSearchResult(null);setSearchQuery("");}else{setView("sessions");setActiveSess(null);}}} style={{background:"none",color:C.muted,fontSize:20,padding:"4px 6px",flexShrink:0}}>←</button>}
             <BrandMark size={28}/>
             <span style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:C.text,flexShrink:0}}>AppProf</span>
-            {activeSession&&view!=="sessions"&&<span className="hide-mobile" style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>/ {activeSession.name}</span>}
+            {activeSession&&view!=="sessions"&&<span className="hide-mobile" style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>/ {nombreClase(activeSession)}</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
             {isViewer&&<span className="hide-mobile" style={{background:`${C.warning}22`,color:C.warning,border:`1px solid ${C.warning}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>LECTURA</span>}
@@ -352,40 +380,44 @@ export default function TeacherApp({ user, onLogout }) {
         {/* SESSIONS LIST */}
         {view==="sessions"&&(
           <div style={{animation:"fadeUp .4s ease both"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
-              <div><h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:22,fontWeight:700}}>Mis Sesiones</h2><p style={{color:C.muted,fontSize:13,marginTop:4}}>Selecciona una sesión para comenzar</p></div>
-              {!isViewer&&<button className="btn" onClick={()=>setShowNewSess(true)} style={{background:`linear-gradient(135deg,${C.accent},${C.purple})`,color:"#fff",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:600,fontFamily:"inherit"}}>+ Nueva Sesión</button>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:10,flexWrap:"wrap"}}>
+              <div><h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:22,fontWeight:700}}>Mis clases</h2><p style={{color:C.muted,fontSize:13,marginTop:4}}>{fmtDate(today())} · la clase que toca aparece primero</p></div>
+              {!isViewer&&<button className="btn" onClick={()=>setClaseForm({initial:null})} style={{background:`linear-gradient(135deg,${C.accent},${C.purple})`,color:"#fff",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:600,fontFamily:"inherit"}}>+ Nueva clase</button>}
             </div>
-            {showNewSess&&!isViewer&&(
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,padding:24,marginBottom:20,animation:"fadeUp .3s ease both"}}>
-                <h3 style={{marginBottom:16,fontSize:15,fontWeight:600}}>Nueva Sesión</h3>
-                <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-                  <input className="inp" placeholder="Nombre (ej. Matemáticas 3A)" value={newSessName} onChange={e=>setNewSessName(e.target.value)} style={{flex:2,minWidth:200}}/>
-                  <input className="inp" type="date" value={newSessDate} onChange={e=>setNewSessDate(e.target.value)} style={{flex:1}}/>
-                  <select className="inp" value={newSessTurno} onChange={e=>setNewSessTurno(e.target.value)} style={{flex:1,minWidth:150,cursor:"pointer"}} title="Prefectura que verá este grupo">
-                    {Object.entries(TURNOS).map(([k,t])=><option key={k} value={k}>{t.icon} Prefectura {t.label.toLowerCase()}</option>)}
-                  </select>
-                  <button className="btn" onClick={createSession} style={{background:C.success,color:"#fff",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:600,fontFamily:"inherit"}}>Crear</button>
-                  <button className="btn" onClick={()=>setShowNewSess(false)} style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px",fontSize:14,fontFamily:"inherit"}}>Cancelar</button>
-                </div>
-              </div>
-            )}
-            {sessions.length===0?<Empty icon="🗂️" msg="No hay sesiones. ¡Crea la primera!"/>:(
-              <div style={{display:"grid",gap:12}}>
-                {sessions.map((s,i)=>(
-                  <div key={s.id} className="row-hover" onClick={()=>selectSession(s)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:`slideIn .3s ease both`,animationDelay:`${i*.05}s`}}>
-                    <div style={{display:"flex",alignItems:"center",gap:16}}>
-                      <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${C.accent}22,${C.purple}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📚</div>
-                      <div><div style={{fontWeight:600,fontSize:15}}>{s.name}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>📅 {s.date}{s.turno&&<span style={{marginLeft:8,color:C.gold}}>{TURNOS[s.turno].icon} {TURNOS[s.turno].label}</span>}</div></div>
+            {sessions.length===0?<Empty icon="🗂️" msg="No hay clases. ¡Crea la primera!"/>:(()=>{
+              const d = today(), now = horaMX();
+              const rank = (s) => enCurso(s.horario, d, now) ? 0 : tieneClase(s.horario, d) ? 1 : 2;
+              const sorted = [...sessions].sort((a,b) => rank(a)-rank(b) || (inicioDelDia(a.horario,d)||"99").localeCompare(inicioDelDia(b.horario,d)||"99") || nombreClase(a).localeCompare(nombreClase(b)));
+              return (
+              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:12}}>
+                {sorted.map((s,i)=>{
+                  const r = rank(s), turno = s.grupo?.turno || s.turno, res = resumenHorario(s.horario);
+                  return (
+                  <div key={s.id} className="row-hover" onClick={()=>selectSession(s)} style={{background:r===0?`${C.accent}18`:C.card,border:`1px solid ${r===0?C.accent:C.border}`,borderRadius:14,padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,animation:`slideIn .3s ease both`,animationDelay:`${i*.05}s`,minWidth:0}}>
+                    <div style={{width:48,height:48,borderRadius:12,background:`linear-gradient(135deg,${C.accent}33,${C.purple}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:s.grupo?.name?.length>4?11:15,color:C.text,flexShrink:0,textAlign:"center",lineHeight:1.1,padding:2}}>{s.grupo?.name || "📚"}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:15,overflowWrap:"anywhere"}}>{s.materia || s.name}
+                        {r===0&&<span style={{marginLeft:8,background:C.accent,color:"#fff",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,verticalAlign:"middle"}}>AHORA</span>}
+                        {r===1&&<span style={{marginLeft:8,background:`${C.teal}33`,color:C.teal,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700,verticalAlign:"middle"}}>HOY {inicioDelDia(s.horario,d)}</span>}
+                      </div>
+                      <div style={{color:C.muted,fontSize:12,marginTop:3,display:"flex",flexWrap:"wrap",gap:"2px 10px"}}>
+                        {s.grupo?.name&&<span>👥 Grupo {s.grupo.name}</span>}
+                        {turno&&<span style={{color:C.gold}}>{TURNOS[turno].icon} {TURNOS[turno].label}</span>}
+                        {res ? <span>🕐 {res}</span> : !isViewer && <span style={{color:C.warning}}>⚠️ Sin horario</span>}
+                      </div>
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <span style={{color:C.accent,fontSize:13}}>Abrir →</span>
-                      {!isViewer&&<button className="btn" onClick={e=>{e.stopPropagation();deleteSession(s.id);}} style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:"none",borderRadius:8,padding:"6px 10px"}}>🗑️</button>}
-                    </div>
+                    {!isViewer&&(
+                      <div style={{display:"flex",gap:6,flexShrink:0}}>
+                        <button className="btn" title="Editar materia y horario" onClick={e=>{e.stopPropagation();setClaseForm({initial:s});}} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 9px"}}>✏️</button>
+                        <button className="btn" title="Eliminar clase" onClick={e=>{e.stopPropagation();deleteSession(s);}} style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:"none",borderRadius:8,padding:"6px 9px"}}>🗑️</button>
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
@@ -396,10 +428,10 @@ export default function TeacherApp({ user, onLogout }) {
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"16px 18px",marginBottom:16}}>
               {/* Prefectura (turno) del grupo */}
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
-                <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1}}>PREFECTURA</div>
+                <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1}}>PREFECTURA · GRUPO {activeSession.grupo?.name || ""}</div>
                 <div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:3,gap:3,flex:"1 1 220px"}}>
                   {Object.entries(TURNOS).map(([k,t])=>{
-                    const on = activeSession.turno===k;
+                    const on = (activeSession.grupo?.turno || activeSession.turno)===k;
                     return (
                       <button key={k} className="btn" disabled={isViewer} onClick={()=>setTurno(k)}
                         style={{flex:1,background:on?C.gold:"transparent",color:on?"#1a1200":C.muted,borderRadius:8,padding:"7px 8px",fontSize:13,fontWeight:on?700:500,fontFamily:"inherit",minHeight:34}}>
@@ -408,7 +440,7 @@ export default function TeacherApp({ user, onLogout }) {
                     );
                   })}
                 </div>
-                {!activeSession.turno&&<div style={{fontSize:11,color:C.warning,flexBasis:"100%"}}>⚠️ Elige el turno para que lo vea la Prefectura correcta.</div>}
+                {!(activeSession.grupo?.turno || activeSession.turno)&&<div style={{fontSize:11,color:C.warning,flexBasis:"100%"}}>⚠️ Elige el turno del grupo para que lo vea la Prefectura correcta.</div>}
               </div>
               <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1,marginBottom:12}}>SELECTOR DE FECHA</div>
               {/* Fecha activa + horas + estado de guardado */}
@@ -522,7 +554,7 @@ export default function TeacherApp({ user, onLogout }) {
             {/* Toolbar */}
             {!isViewer&&(
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
-                <button className="btn" onClick={()=>fileRef.current.click()} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>📥 Excel</button>
+                <button className="btn" onClick={()=>fileRef.current.click()} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}} title="Importar alumnos a la lista del grupo">📥 Excel</button>
                 <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileSelected} style={{display:"none"}}/>
                 <button className="btn" onClick={downloadStudentsTemplate} title="Descargar plantilla de ejemplo" style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",fontSize:13,fontFamily:"inherit"}}>📄 Plantilla</button>
                 <AddStudentInline onAdd={addStudent}/>
@@ -593,13 +625,13 @@ export default function TeacherApp({ user, onLogout }) {
                           </button>
                           {s.tutor_phone&&st==="absent"&&(
                             <button className="btn" onClick={()=>{
-                              const ok=sendWhatsApp({student:s,date:selectedDate,sessionName:activeSession.name,status:st,reason:attendance[s.id]?.reason||"",teacherName:user.name});
+                              const ok=sendWhatsApp({student:s,date:selectedDate,sessionName:nombreClase(activeSession),status:st,reason:attendance[s.id]?.reason||"",teacherName:user.name});
                               if(!ok)showToast("⚠️ Sin teléfono");else showToast("📲 Abriendo WhatsApp...");
                             }} style={{background:"#25d36622",color:"#25d366",border:"1.5px solid #25d36666",borderRadius:8,padding:"6px 8px",fontSize:13}}>
                               📲
                             </button>
                           )}
-                          {!isViewer&&<button className="btn" onClick={()=>removeStudent(s.id)} style={{background:"none",color:C.muted,border:"none",padding:"6px 6px",fontSize:14,opacity:.5}}>×</button>}
+                          {!isViewer&&<button className="btn" title="Dar de baja del grupo" onClick={()=>removeStudent(s.id)} style={{background:"none",color:C.muted,border:"none",padding:"6px 6px",fontSize:14,opacity:.5}}>×</button>}
                         </div>
                       </div>
                       {/* Fila inferior: botones de asistencia — ancho completo */}
@@ -643,7 +675,7 @@ export default function TeacherApp({ user, onLogout }) {
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:"28px",marginBottom:20}}>
               <div style={{display:"flex",alignItems:"center",gap:18,marginBottom:24}}>
                 <div style={{width:62,height:62,borderRadius:16,background:`linear-gradient(135deg,${C.accent}33,${C.purple}33)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:700,color:C.accent}}>{searchResult.student.name.charAt(0).toUpperCase()}</div>
-                <div><h2 style={{fontFamily:"'Merriweather',serif",fontSize:20,fontWeight:700}}>{searchResult.student.name}</h2><div style={{color:C.muted,fontSize:13,marginTop:3}}>Historial — {activeSession?.name}</div></div>
+                <div><h2 style={{fontFamily:"'Merriweather',serif",fontSize:20,fontWeight:700}}>{searchResult.student.name}</h2><div style={{color:C.muted,fontSize:13,marginTop:3}}>Historial — {nombreClase(activeSession)}</div></div>
               </div>
               {(()=>{
                 const total=searchResult.history.length, pres=searchResult.history.filter(h=>h.status==="present").length;

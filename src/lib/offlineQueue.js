@@ -4,12 +4,22 @@ import { sb } from "./supabase";
 // Cada marca de asistencia se guarda aquí primero y luego se envía a Supabase.
 // Si no hay internet, se queda en la cola y se reintenta sola al volver la conexión.
 //
-// Formato: { "a|<student_id>|<date>": {session_id, student_id, date, status, reason},
+// Formato: { "a|<session_id>|<student_id>|<date>": {session_id, student_id, date, status, reason},
 //            "h|<session_id>|<date>": {session_id, date, hours} }
 const KEY = "appprof_pending";
 
 function read() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+  let q;
+  try { q = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; }
+  // Versión anterior guardaba "a|<student_id>|<date>": se convierte al formato por clase
+  Object.keys(q).forEach(k => {
+    const parts = k.split("|");
+    if (parts[0] === "a" && parts.length === 3 && q[k]?.session_id) {
+      q[`a|${q[k].session_id}|${parts[1]}|${parts[2]}`] = q[k];
+      delete q[k];
+    }
+  });
+  return q;
 }
 function write(q) {
   try { localStorage.setItem(KEY, JSON.stringify(q)); } catch { /* sin almacenamiento */ }
@@ -23,7 +33,7 @@ export function pendingCount() { return Object.keys(read()).length; }
 
 export function queueAttendance(rows) {
   const q = read();
-  rows.forEach(r => { q[`a|${r.student_id}|${r.date}`] = { session_id:r.session_id, student_id:r.student_id, date:r.date, status:r.status, reason:r.reason || null }; });
+  rows.forEach(r => { q[`a|${r.session_id}|${r.student_id}|${r.date}`] = { session_id:r.session_id, student_id:r.student_id, date:r.date, status:r.status, reason:r.reason || null }; });
   write(q); notify();
 }
 export function queueHours(session_id, date, hours) {
@@ -84,7 +94,7 @@ export function flush() {
         const done = [];
 
         if (attKeys.length) {
-          const { error } = await withTimeout(sb.from("attendance").upsert(attKeys.map(k => snapshot[k]), { onConflict:"student_id,date" }));
+          const { error } = await withTimeout(sb.from("attendance").upsert(attKeys.map(k => snapshot[k]), { onConflict:"session_id,student_id,date" }));
           if (error) {
             if (isNetworkError(error)) { offline = true; break; }
             rejected = error.message; done.push(...attKeys);   // el servidor lo rechazó: no reintentar en bucle
