@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { GlobalStyles, BrandMark } from "./Shared";
 import { BRAND } from "../lib/constants";
+import PixelBat from "./PixelBat";
 
 const T = {
   bg:"#07201a", surface:"#0c2d24", card:"#0f3529", border:"#1a5040",
@@ -17,6 +18,7 @@ function Screen({ children }) {
       fontFamily:"'Inter',sans-serif", position:"relative",
     }}>
       <GlobalStyles/>
+      <PixelBat/>
       <div style={{position:"fixed",top:"-20%",left:"-10%",width:"55vw",height:"55vw",borderRadius:"50%",background:`radial-gradient(circle,${T.glow1} 0%,transparent 70%)`,pointerEvents:"none",zIndex:0}}/>
       <div style={{position:"fixed",bottom:"-20%",right:"-10%",width:"50vw",height:"50vw",borderRadius:"50%",background:`radial-gradient(circle,${T.glow2} 0%,transparent 70%)`,pointerEvents:"none",zIndex:0}}/>
       <div style={{
