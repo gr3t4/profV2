@@ -31,7 +31,7 @@ function Frame({ rows, className }) {
   const px = [];
   rows.forEach((row, y) => [...row].forEach((c, x) => {
     if (c === ".") return;
-    px.push(<rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill={c === "o" ? "#ffd23f" : "#3a1f5c"}/>);
+    px.push(<rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill={c === "o" ? "#ffd23f" : "#5b3594"}/>);
   }));
   return <g className={className}>{px}</g>;
 }
