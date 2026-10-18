@@ -1,9 +1,7 @@
-import { today } from "../lib/constants";
+import { halloweenActive } from "../lib/season";
 
 // Murciélago 8 bits que cruza volando la pantalla de inicio de sesión.
 // Decoración de temporada: se muestra solo hasta el 10 de noviembre de 2026.
-const BAT_SEASON_END = "2026-11-10";
-const batSeasonActive = () => today() <= BAT_SEASON_END;
 
 // Cuadrícula de 16 × 8 "píxeles": # = cuerpo/alas, o = ojos
 const FRAME_UP = [
@@ -37,7 +35,7 @@ function Frame({ rows, className }) {
 }
 
 export default function PixelBat() {
-  if (!batSeasonActive()) return null;
+  if (!halloweenActive()) return null;
   return (
     <div aria-hidden="true" style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:2,overflow:"hidden"}}>
       <style>{`
