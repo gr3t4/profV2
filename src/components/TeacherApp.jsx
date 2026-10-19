@@ -8,11 +8,15 @@ import ExportModal from "./ExportModal";
 import ImportPreviewModal from "./ImportPreviewModal";
 import ReportModule from "./ReportModule";
 import TutorModal from "./TutorModal";
-import TutoriaModal from "./TutoriaModal";
+import MensajeModal from "./MensajeModal";
+import ActividadesModule from "./ActividadesModule";
 import ClaseForm from "./ClaseForm";
 import { horasDelDia, enCurso, inicioDelDia, resumenHorario, horaMX, nombreClase, tieneClase } from "../lib/horario";
-import { sendWhatsApp, buildTutoriaMessage } from "../lib/whatsapp";
+import { buildTutoriaMessage } from "../lib/whatsapp";
 import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStudents";
+// Orden alfabético en español (acentos y ñ correctos)
+const byName = (a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" });
+
 export default function TeacherApp({ user, onLogout }) {
   const [sessions, setSessions]         = useState([]);
   const [activeSession, setActiveSess]  = useState(null);
@@ -38,7 +42,7 @@ export default function TeacherApp({ user, onLogout }) {
   const [justifyTarget, setJustifyTarget] = useState(null);
   const [showExport, setShowExport]     = useState(false);
   const [tutorTarget, setTutorTarget]   = useState(null);
-  const [showTutoria, setShowTutoria]   = useState(false);
+  const [mensaje, setMensaje]           = useState(null); // texto del mensaje de faltas
   const [importPreview, setImportPreview] = useState(null); // rows parsed, pending confirmación
   const fileRef = useRef();
   const isViewer = user.role === "viewer";
@@ -78,7 +82,7 @@ export default function TeacherApp({ user, onLogout }) {
     const { data:studs } = s.grupo_id
       ? await fetchAll(() => sb.from("students").select("*").eq("grupo_id", s.grupo_id).eq("active", true).order("name").order("id"))
       : await sb.from("students").select("*").eq("session_id", s.id).order("created_at");
-    setStudents(studs || []);
+    setStudents((studs || []).slice().sort(byName));
     const { data:attRows } = await fetchAll(() => sb.from("attendance").select("date").eq("session_id", s.id).order("id"));
     const pend = pendingDates(s.id);
     const dates = [...new Set([...(attRows||[]).map(r=>r.date), ...pend.dates])].sort().reverse();
@@ -215,7 +219,7 @@ export default function TeacherApp({ user, onLogout }) {
       tutor_phone: r.tutorPhone || null,
     }))).select();
     if (error) { showToast("❌ " + error.message); return; }
-    setStudents(p => [...p, ...data]);
+    setStudents(p => [...p, ...data].sort(byName));
     setImportPreview(null);
     showToast(`📥 ${data.length} agregados al grupo ${activeSession.grupo?.name || ""}`);
   }
@@ -223,7 +227,7 @@ export default function TeacherApp({ user, onLogout }) {
     if (!activeSession.grupo_id) { showToast("⚠️ Primero asigna un grupo a esta clase (✏️)"); return; }
     const { data, error } = await sb.from("students").insert({ grupo_id:activeSession.grupo_id, name:name.trim() }).select().single();
     if (error) { showToast("❌ " + error.message); return; }
-    setStudents(p => [...p, data]);
+    setStudents(p => [...p, data].sort(byName));
   }
   // Baja del grupo: deja de aparecer en todas las materias, pero conserva su historial
   async function removeStudent(id) {
@@ -296,27 +300,12 @@ export default function TeacherApp({ user, onLogout }) {
 
   const getStatus = (id) => attendance[id]?.status || "pending";
 
-  // Aviso a papás: un mensaje por cada alumno con falta y teléfono registrado
-  function notifyParents() {
-    const ausentes = students.filter(s=>getStatus(s.id)==="absent"&&s.tutor_phone);
-    if(!ausentes.length){showToast("⚠️ Sin faltas con teléfono de papá/mamá registrado");return;}
-    ausentes.forEach(s=>sendWhatsApp({student:s,date:selectedDate,sessionName:nombreClase(activeSession),status:"absent",reason:"",teacherName:user.name}));
-    showToast(`📲 ${ausentes.length} mensaje(s) a papás`);
-  }
-
-  // Aviso a Tutorías: un solo reporte (editable) con docente, materia y alumnos con falta
-  function buildTutoria(contactName) {
-    return buildTutoriaMessage({ contactName, date:selectedDate, sessionName:nombreClase(activeSession),
-      absentStudents:students.filter(s=>getStatus(s.id)==="absent"), totalStudents:students.length, teacherName:user.name });
-  }
-  function notifyTutoria() {
-    if(!students.some(s=>getStatus(s.id)==="absent")){showToast("⚠️ No hay faltas en esta fecha");return;}
-    setShowTutoria(true);
-  }
-  function saveTutoriaContact(updated) {
-    setActiveSess(updated);
-    setSessions(p => p.map(s => s.id === updated.id ? updated : s));
-    showToast("🏫 Contacto de Tutorías guardado");
+  // Mensaje de faltas (docente, materia, fecha y alumnos con falta) para copiar
+  function generarMensaje() {
+    const ausentes = students.filter(s=>getStatus(s.id)==="absent");
+    if(!ausentes.length){showToast("⚠️ No hay faltas en esta fecha");return;}
+    setMensaje(buildTutoriaMessage({ contactName:"", date:selectedDate, sessionName:nombreClase(activeSession),
+      absentStudents:ausentes, totalStudents:students.length, teacherName:user.name }));
   }
   const counts = {
     present: students.filter(s=>getStatus(s.id)==="present").length,
@@ -329,6 +318,7 @@ export default function TeacherApp({ user, onLogout }) {
 
   const MAIN_TABS = [
     { id:"attendance", label:"📋 Asistencia" },
+    { id:"activities", label:"📝 Actividades" },
     { id:"report",     label:"📈 Reporte" },
   ];
 
@@ -340,7 +330,7 @@ export default function TeacherApp({ user, onLogout }) {
       {toast && <Toast msg={toast}/>}
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
-      {showTutoria && activeSession && <TutoriaModal session={activeSession} absentCount={counts.absent} buildMessage={buildTutoria} onSave={saveTutoriaContact} onSent={()=>{setShowTutoria(false);showToast("📲 Reporte a Tutorías abierto");}} onClose={()=>setShowTutoria(false)}/>}
+      {mensaje && activeSession && <MensajeModal initial={mensaje} title={`${nombreClase(activeSession)} · ${fmtDate(selectedDate)}`} onClose={()=>setMensaje(null)}/>}
       {tutorTarget && <TutorModal student={tutorTarget} sessionName={nombreClase(activeSession)} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
       {claseForm && <ClaseForm user={user} grupos={grupos} initial={claseForm.initial} onSaved={onClaseSaved} onClose={()=>setClaseForm(null)}/>}
       {importPreview && <ImportPreviewModal rows={importPreview} existingNames={students.map(s=>s.name)} onConfirm={confirmImport} onClose={()=>setImportPreview(null)}/>}
@@ -364,11 +354,11 @@ export default function TeacherApp({ user, onLogout }) {
 
       {/* Sub-tabs when inside a session */}
       {view!=="sessions"&&view!=="student-history"&&(
-        <div className="tabs-scroll" style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 24px"}}>
+        <div className="tabs-scroll" style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 8px"}}>
           <div style={{maxWidth:980,margin:"0 auto",display:"flex",gap:4,minWidth:"max-content"}}>
             {MAIN_TABS.map(t=>(
               <button key={t.id} className="btn" onClick={()=>setMainTab(t.id)}
-                style={{background:"none",color:mainTab===t.id?C.accent:C.muted,borderBottom:mainTab===t.id?`2px solid ${C.accent}`:"2px solid transparent",padding:"12px 18px",fontSize:14,fontFamily:"inherit",fontWeight:mainTab===t.id?600:400,transition:"all .2s"}}>
+                style={{background:"none",color:mainTab===t.id?C.accent:C.muted,borderBottom:mainTab===t.id?`2px solid ${C.accent}`:"2px solid transparent",padding:"12px 12px",fontSize:14,fontFamily:"inherit",fontWeight:mainTab===t.id?600:400,whiteSpace:"nowrap",transition:"all .2s"}}>
                 {t.label}
               </button>
             ))}
@@ -564,33 +554,23 @@ export default function TeacherApp({ user, onLogout }) {
                   <button className="btn" onClick={()=>markAll("late")} style={{background:`${C.late}22`,color:C.late,border:`1px solid ${C.late}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>🕐 Todos</button>
                   <button className="btn" onClick={()=>markAll("absent")} style={{background:`${C.danger}22`,color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>❌ Todos</button>
                   <button className="btn" onClick={()=>setShowExport(true)} style={{background:`linear-gradient(135deg,${C.purple},${C.accent})`,color:"#fff",borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>📦 Exportar</button>
-                  <button className="btn" onClick={notifyParents} title="Un mensaje a cada papá/mamá de los alumnos con falta"
-                    style={{background:"#25d36622",color:"#25d366",border:"1.5px solid #25d36666",borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
-                    👨‍👩‍👧 Avisar papás
+                  <button className="btn" onClick={generarMensaje} title="Mensaje con docente, materia, fecha y alumnos con falta, para copiar"
+                    style={{background:`${C.gold}22`,color:C.gold,border:`1.5px solid ${C.gold}66`,borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
+                    📋 Generar mensaje
                   </button>
-                  <div style={{display:"flex"}}>
-                    <button className="btn" onClick={notifyTutoria} title="Un solo reporte con la lista de faltas para Tutorías"
-                      style={{background:`${C.gold}22`,color:C.gold,border:`1.5px solid ${C.gold}66`,borderRadius:"9px 0 0 9px",padding:"8px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
-                      🏫 Avisar tutorías
-                    </button>
-                    <button className="btn" onClick={()=>setShowTutoria(true)} title="Configurar contacto de Tutorías"
-                      style={{background:`${C.gold}11`,color:C.gold,border:`1.5px solid ${C.gold}66`,borderLeft:"none",borderRadius:"0 9px 9px 0",padding:"8px 10px",fontSize:13}}>
-                      ⚙️
-                    </button>
-                  </div>
                 </div>
               </div>
             )}
-            {/* Lista completa: sugerir avisar a Tutorías */}
+            {/* Lista completa: sugerir generar el mensaje de faltas */}
             {!isViewer&&students.length>0&&counts.pending===0&&counts.absent>0&&(
               <div style={{background:`${C.gold}14`,border:`1px solid ${C.gold}55`,borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:180,fontSize:13,color:C.text}}>
                   ✅ Lista completa · <b style={{color:C.danger}}>{counts.absent} falta{counts.absent===1?"":"s"}</b>
-                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>Envía a Tutorías tu nombre, la materia y los alumnos con falta.</div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>Genera el mensaje con tu nombre, la materia y los alumnos con falta.</div>
                 </div>
-                <button className="btn" onClick={notifyTutoria}
-                  style={{background:`linear-gradient(135deg,${C.gold},#a8841a)`,color:"#fff",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,fontFamily:"inherit",whiteSpace:"nowrap"}}>
-                  🏫 Avisar a tutorías
+                <button className="btn" onClick={generarMensaje}
+                  style={{background:`linear-gradient(135deg,${C.gold},#8a6d3f)`,color:"#fff",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                  📋 Generar mensaje
                 </button>
               </div>
             )}
@@ -617,21 +597,13 @@ export default function TeacherApp({ user, onLogout }) {
                             {st==="excused"&&reason&&<span style={{color:C.muted,marginLeft:4}}>· {reason.length>25?reason.substring(0,25)+"…":reason}</span>}
                           </div>
                         </div>
-                        {/* Botones secundarios (historial, tutor, whatsapp) */}
+                        {/* Botones secundarios (historial, datos del tutor, baja) */}
                         <div style={{display:"flex",gap:5,flexShrink:0}}>
                           <button className="btn" onClick={()=>{setSearchQuery(s.name);searchStudent(s.name);}} title="Ver historial" style={{background:`${C.purple}18`,color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:8,padding:"6px 8px",fontSize:13}}>📅</button>
                           <button className="btn" onClick={()=>setTutorTarget(s)} title={s.tutor_phone?"Editar tutor":"Agregar tutor"}
                             style={{background:s.tutor_phone?"#25d36622":"transparent",color:s.tutor_phone?"#25d366":C.muted,border:`1.5px solid ${s.tutor_phone?"#25d366":C.border}`,borderRadius:8,padding:"6px 8px",fontSize:13}}>
                             📱
                           </button>
-                          {s.tutor_phone&&st==="absent"&&(
-                            <button className="btn" onClick={()=>{
-                              const ok=sendWhatsApp({student:s,date:selectedDate,sessionName:nombreClase(activeSession),status:st,reason:attendance[s.id]?.reason||"",teacherName:user.name});
-                              if(!ok)showToast("⚠️ Sin teléfono");else showToast("📲 Abriendo WhatsApp...");
-                            }} style={{background:"#25d36622",color:"#25d366",border:"1.5px solid #25d36666",borderRadius:8,padding:"6px 8px",fontSize:13}}>
-                              📲
-                            </button>
-                          )}
                           {!isViewer&&<button className="btn" title="Dar de baja del grupo" onClick={()=>removeStudent(s.id)} style={{background:"none",color:C.muted,border:"none",padding:"6px 6px",fontSize:14,opacity:.5}}>×</button>}
                         </div>
                       </div>
@@ -663,6 +635,11 @@ export default function TeacherApp({ user, onLogout }) {
               </div>
             )}
           </div>
+        )}
+
+        {/* ACTIVIDADES TAB */}
+        {view==="attendance"&&activeSession&&mainTab==="activities"&&(
+          <ActividadesModule key={activeSession.id} session={activeSession} students={students} isViewer={isViewer} showToast={showToast} sessionLabel={nombreClase(activeSession)}/>
         )}
 
         {/* REPORT TAB */}
