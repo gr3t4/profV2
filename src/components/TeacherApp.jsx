@@ -9,6 +9,7 @@ import ImportPreviewModal from "./ImportPreviewModal";
 import ReportModule from "./ReportModule";
 import TutorModal from "./TutorModal";
 import MensajeModal from "./MensajeModal";
+import MiCuentaModal from "./MiCuentaModal";
 import ActividadesModule from "./ActividadesModule";
 import ClaseForm from "./ClaseForm";
 import { horasDelDia, enCurso, inicioDelDia, resumenHorario, horaMX, nombreClase, tieneClase } from "../lib/horario";
@@ -17,7 +18,7 @@ import { parseStudentsExcel, downloadStudentsTemplate } from "../lib/excelStuden
 // Orden alfabético en español (acentos y ñ correctos)
 const byName = (a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" });
 
-export default function TeacherApp({ user, onLogout }) {
+export default function TeacherApp({ user, onLogout, onProfileChange }) {
   const [sessions, setSessions]         = useState([]);
   const [activeSession, setActiveSess]  = useState(null);
   const [view, setView]                 = useState("sessions");
@@ -43,6 +44,7 @@ export default function TeacherApp({ user, onLogout }) {
   const [showExport, setShowExport]     = useState(false);
   const [tutorTarget, setTutorTarget]   = useState(null);
   const [mensaje, setMensaje]           = useState(null); // texto del mensaje de faltas
+  const [showCuenta, setShowCuenta]     = useState(false);
   const [importPreview, setImportPreview] = useState(null); // rows parsed, pending confirmación
   const fileRef = useRef();
   const isViewer = user.role === "viewer";
@@ -330,6 +332,7 @@ export default function TeacherApp({ user, onLogout }) {
       {toast && <Toast msg={toast}/>}
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
+      {showCuenta && <MiCuentaModal user={user} onNameChanged={n=>{onProfileChange?.({ name:n }); showToast("✅ Nombre actualizado");}} onClose={()=>setShowCuenta(false)}/>}
       {mensaje && activeSession && <MensajeModal initial={mensaje} title={`${nombreClase(activeSession)} · ${fmtDate(selectedDate)}`} onClose={()=>setMensaje(null)}/>}
       {tutorTarget && <TutorModal student={tutorTarget} sessionName={nombreClase(activeSession)} onSave={saveTutor} onClose={()=>setTutorTarget(null)}/>}
       {claseForm && <ClaseForm user={user} grupos={grupos} initial={claseForm.initial} onSaved={onClaseSaved} onClose={()=>setClaseForm(null)}/>}
@@ -346,7 +349,10 @@ export default function TeacherApp({ user, onLogout }) {
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
             {isViewer&&<span className="hide-mobile" style={{background:`${C.warning}22`,color:C.warning,border:`1px solid ${C.warning}44`,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>LECTURA</span>}
-            <span className="hide-mobile" style={{fontSize:12,color:C.muted}}>👤 {user.name}</span>
+            <button className="btn" onClick={()=>setShowCuenta(true)} title="Mi cuenta: cambiar nombre o contraseña"
+              style={{background:`${C.accent}18`,color:C.text,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 10px",fontSize:12,fontFamily:"inherit",display:"flex",alignItems:"center",gap:6,maxWidth:200}}>
+              <span>👤</span><span className="hide-mobile" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</span><span style={{color:C.muted}}>✏️</span>
+            </button>
             <button className="btn" onClick={onLogout} style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:`1px solid rgba(239,68,68,0.2)`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>Salir</button>
           </div>
         </div>

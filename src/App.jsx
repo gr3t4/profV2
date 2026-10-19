@@ -22,7 +22,7 @@ export default function App() {
 }
 
 function Screens() {
-  const { user, loading, connError, retry, login, register, logout } = useAuth();
+  const { user, loading, connError, retry, login, register, logout, updateProfile } = useAuth();
 
   // Link público de solo lectura para padres/tutores (?padre=<token>) — no
   // requiere sesión, así que se resuelve antes que cualquier estado de auth.
@@ -43,5 +43,5 @@ function Screens() {
   if (!user) return <><AuthScreen onLogin={login} onRegister={register}/><InstallBanner/></>;
   if (user.role === "admin")  return <><AdminPanel  user={user} onLogout={logout}/><InstallBanner/></>;
   if (user.role === "viewer") return <><ViewerApp   user={user} onLogout={logout}/><InstallBanner/></>;
-  return <><TeacherApp user={user} onLogout={logout}/><InstallBanner/></>;
+  return <><TeacherApp user={user} onLogout={logout} onProfileChange={updateProfile}/><InstallBanner/></>;
 }

@@ -128,5 +128,15 @@ export function useAuth() {
     await sb.auth.signOut();
   }
 
-  return { user, loading, connError, retry, login, register, logout };
+  // Actualiza datos del usuario en pantalla (p. ej. después de cambiar su nombre)
+  const updateProfile = useCallback((patch) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const u = { ...prev, ...patch };
+      writeCachedProfile(u);
+      return u;
+    });
+  }, []);
+
+  return { user, loading, connError, retry, login, register, logout, updateProfile };
 }

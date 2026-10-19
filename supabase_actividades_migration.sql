@@ -47,3 +47,18 @@ CREATE POLICY activity_marks_update ON activity_marks FOR UPDATE TO authenticate
   WITH CHECK ((select my_role()) = 'teacher' AND EXISTS (SELECT 1 FROM activities a JOIN sessions s ON s.id = a.session_id WHERE a.id = activity_marks.activity_id AND s.owner_id = (select auth.uid())));
 CREATE POLICY activity_marks_delete ON activity_marks FOR DELETE TO authenticated
   USING ((select my_role()) = 'teacher' AND EXISTS (SELECT 1 FROM activities a JOIN sessions s ON s.id = a.session_id WHERE a.id = activity_marks.activity_id AND s.owner_id = (select auth.uid())));
+
+-- ══════════════════════════════════════════════════════════════════
+--  Mi cuenta: el usuario cambia su propio nombre (2026-10-19)
+-- ══════════════════════════════════════════════════════════════════
+CREATE OR REPLACE FUNCTION update_my_name(p_name text) RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE n text := trim(coalesce(p_name, ''));
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sin sesión'; END IF;
+  IF length(n) < 3 OR length(n) > 80 THEN RAISE EXCEPTION 'El nombre debe tener entre 3 y 80 caracteres'; END IF;
+  UPDATE profiles SET name = n WHERE id = auth.uid();
+  RETURN n;
+END $$;
+REVOKE ALL ON FUNCTION update_my_name(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION update_my_name(text) TO authenticated;
