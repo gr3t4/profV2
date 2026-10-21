@@ -78,6 +78,44 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
     return () => { off(); window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Refresca los datos solos: al volver a la pestaña/ventana y cada minuto.
+  // Así lo que se registra en otro dispositivo (p. ej. el celular) aparece en la
+  // computadora sin recargar la página.
+  const live = useRef({});
+  live.current = { view, activeSession, selectedDate };
+  useEffect(() => {
+    let busy = false;
+    const refresh = async () => {
+      if (busy || document.visibilityState === "hidden" || navigator.onLine === false) return;
+      busy = true;
+      try {
+        await loadSessions();
+        const { view: v, activeSession: s, selectedDate: d } = live.current;
+        if (v === "attendance" && s) {
+          if (s.grupo_id) {
+            const { data:studs } = await fetchAll(() => sb.from("students").select("*").eq("grupo_id", s.grupo_id).eq("active", true).order("name").order("id"));
+            if (studs && live.current.activeSession?.id === s.id) setStudents(studs.slice().sort(byName));
+          }
+          const [{ data:attRows }, { data:hoursRows }] = await Promise.all([
+            fetchAll(() => sb.from("attendance").select("date").eq("session_id", s.id).order("id")),
+            fetchAll(() => sb.from("class_hours").select("date,hours").eq("session_id", s.id).order("date")),
+          ]);
+          if (live.current.activeSession?.id !== s.id) return;
+          const pend = pendingDates(s.id);
+          if (attRows) setAllDates([...new Set([...attRows.map(r=>r.date), ...pend.dates])].sort().reverse());
+          if (hoursRows) { const hm = {}; hoursRows.forEach(r=>{ hm[r.date]=r.hours; }); Object.assign(hm, pend.hours); setDateHours(hm); if (hm[d]) setClassHours(hm[d]); }
+          if (live.current.selectedDate === d) await loadAttendanceForDate(s.id, d);
+        }
+      } catch { /* sin conexión: se intenta después */ }
+      finally { busy = false; }
+    };
+    const onVis = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", refresh);
+    const iv = setInterval(refresh, 60000);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("focus", refresh); clearInterval(iv); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function selectSession(s) {
     setActiveSess(s);
     // La lista de alumnos es la del grupo (compartida por todas sus materias)
