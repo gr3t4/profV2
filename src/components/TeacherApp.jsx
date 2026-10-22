@@ -512,51 +512,16 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
               </div>
               {searchResult?.notFound&&<div style={{color:C.warning,fontSize:12,marginTop:8,paddingLeft:28}}>⚠️ No se encontró alumno</div>}
             </div>
-            {/* Stats */}
-            <div className="grid-stats-5" style={{marginBottom:18}}>
-              {[{label:"Presentes",count:counts.present,color:C.success,icon:"✅"},{label:"Retardos",count:counts.late,color:C.late,icon:"🕐"},{label:"Justificadas",count:counts.excused,color:C.excused,icon:"📝"},{label:"Ausentes",count:counts.absent,color:C.danger,icon:"❌"},{label:"Pendientes",count:counts.pending,color:C.muted,icon:"⏳"}].map(st=>(
-                <div key={st.label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 10px",textAlign:"center"}}>
-                  <div style={{fontSize:20}}>{st.icon}</div>
-                  <div style={{fontSize:22,fontWeight:700,color:st.color,fontFamily:"'Space Grotesk',sans-serif"}}>{st.count}</div>
-                  <div style={{color:C.muted,fontSize:11}}>{st.label}</div>
+            {/* Resumen del día: solo asistencias y faltas */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+              {[{label:"Asistencias",count:counts.present+counts.late,color:C.success,icon:"✅"},{label:"Faltas",count:counts.absent,color:C.danger,icon:"❌"}].map(st=>(
+                <div key={st.label} style={{background:C.card,border:`1px solid ${st.color}44`,borderRadius:14,padding:"10px 12px",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+                  <span style={{fontSize:18}}>{st.icon}</span>
+                  <span style={{fontSize:22,fontWeight:700,color:st.color,fontFamily:"'Space Grotesk',sans-serif"}}>{st.count}</span>
+                  <span style={{color:C.muted,fontSize:12}}>{st.label}</span>
                 </div>
               ))}
             </div>
-            {/* Resumen de horas del período */}
-            {allDates.length > 0 && (()=>{
-              const totalHrs = Object.values(dateHours).reduce((a,b)=>a+b,0);
-              const hrsHoy = dateHours[selectedDate] || classHours || 1;
-              return (
-                <div style={{background:C.card,border:`1px solid ${C.teal}44`,borderRadius:12,padding:"12px 16px",marginBottom:16,display:"flex",gap:16,flexWrap:"wrap"}}>
-                  <div style={{textAlign:"center",flex:1}}>
-                    <div style={{fontSize:20,fontWeight:800,color:C.teal}}>{totalHrs}</div>
-                    <div style={{fontSize:11,color:C.muted}}>hrs totales período</div>
-                  </div>
-                  <div style={{textAlign:"center",flex:1}}>
-                    <div style={{fontSize:20,fontWeight:800,color:C.accent}}>{allDates.length}</div>
-                    <div style={{fontSize:11,color:C.muted}}>clases registradas</div>
-                  </div>
-                  <div style={{textAlign:"center",flex:1}}>
-                    <div style={{fontSize:20,fontWeight:800,color:C.purple}}>{hrsHoy}</div>
-                    <div style={{fontSize:11,color:C.muted}}>hrs esta clase</div>
-                  </div>
-                </div>
-              );
-            })()}
-            {/* Progress bar */}
-            {students.length>0&&(
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 20px",marginBottom:16}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:7,fontSize:12}}>
-                  <span style={{color:C.muted}}>Progreso — {fmtDate(selectedDate)}</span>
-                  <span style={{color:C.accent,fontWeight:600}}>{students.length-counts.pending}/{students.length}</span>
-                </div>
-                <div style={{background:C.border,borderRadius:6,height:8,overflow:"hidden",display:"flex"}}>
-                  {[{v:counts.present,c:C.success},{v:counts.late,c:C.late},{v:counts.excused,c:C.excused},{v:counts.absent,c:C.danger}].map((seg,i)=>(
-                    <div key={i} style={{height:"100%",width:`${(seg.v/Math.max(students.length,1))*100}%`,background:seg.c,transition:"width .4s ease"}}/>
-                  ))}
-                </div>
-              </div>
-            )}
             {/* Toolbar */}
             {!isViewer&&(
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
