@@ -6,7 +6,6 @@ import { GlobalStyles, Glow, Toast, Empty, AddStudentInline, BrandMark } from ".
 import JustifyModal from "./JustifyModal";
 import ExportModal from "./ExportModal";
 import ImportPreviewModal from "./ImportPreviewModal";
-import ReportModule from "./ReportModule";
 import TutorModal from "./TutorModal";
 import MensajeModal from "./MensajeModal";
 import MiCuentaModal from "./MiCuentaModal";
@@ -366,8 +365,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
   const MAIN_TABS = [
     { id:"attendance", label:"📋 Asistencia" },
     { id:"activities", label:"📝 Actividades" },
-    { id:"grades",     label:`🎓 Calificaciones${stats && (stats.resumen.reprobando + stats.resumen.riesgo) ? ` ⚠️${stats.resumen.reprobando + stats.resumen.riesgo}` : ""}` },
-    { id:"report",     label:"📈 Reporte" },
+    { id:"grades",     label:"🎓 Calificaciones" },
   ];
 
   return (
@@ -652,9 +650,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
         )}
 
         {/* REPORT TAB */}
-        {view==="attendance"&&activeSession&&mainTab==="report"&&(
-          <ReportModule sessionId={activeSession.id} students={students}/>
-        )}
+
 
         {/* STUDENT HISTORY */}
         {view==="student-history"&&searchResult?.student&&(

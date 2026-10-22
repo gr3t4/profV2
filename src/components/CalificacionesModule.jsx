@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { C } from "../lib/constants";
 import { EVAL_DEFAULT, NIVEL, SIN_RA, etiquetaRA, nuevoIdRA, guardarConfig } from "../lib/evaluacion";
 import { Empty } from "./Shared";
@@ -42,9 +43,10 @@ function ConfigModal({ session, cfg, onSaved, onClose }) {
     </div>
   );
 
-  return (
+  // Se dibuja directo en <body> para que ninguna animación de la página la desacomode
+  return createPortal(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:22,width:"100%",maxWidth:540,maxHeight:"94vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,0.6)",animation:"fadeUp .2s ease"}}>
+      <div style={{background:C.card,color:C.text,fontFamily:"Inter,sans-serif",border:`1px solid ${C.border}`,borderRadius:20,padding:22,width:"100%",maxWidth:540,maxHeight:"94vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,0.6)",animation:"fadeUp .2s ease"}}>
         <div style={{fontWeight:700,fontSize:17,marginBottom:4}}>⚙️ Evaluación de la clase</div>
         <div style={{color:C.muted,fontSize:12,marginBottom:16}}>Resultados de aprendizaje, cómo se calcula la calificación y cuándo avisar que un alumno está en riesgo.</div>
 
@@ -87,7 +89,8 @@ function ConfigModal({ session, cfg, onSaved, onClose }) {
             style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",fontSize:14,fontFamily:"inherit"}}>Cancelar</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

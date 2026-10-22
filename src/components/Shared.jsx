@@ -136,6 +136,7 @@ export function GlobalStyles() {
       .btn:active{filter:brightness(.95);}
       .inp{background:${C.surface};border:1.5px solid ${C.border};color:${C.text};border-radius:8px;padding:10px 14px;font-size:15px!important;font-family:'Inter',sans-serif;transition:border-color .2s;width:100%;}
       .inp:focus{border-color:${C.accent};}
+      .btn:focus:not(:focus-visible){outline:none;}
       .inp::placeholder{color:${C.muted};}
       select.inp option{background:${C.surface};color:${C.text};}
       textarea.inp{font-family:'Inter',sans-serif;}
@@ -143,8 +144,8 @@ export function GlobalStyles() {
       .row-hover{transition:background .15s;}
       .row-hover:hover{background:rgba(255,255,255,0.03)!important;}
       .chip{cursor:pointer;transition:all .15s;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'Inter',sans-serif;border:1.5px solid;}
-      @keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
-      @keyframes slideIn{from{opacity:0;transform:translateX(-12px);}to{opacity:1;transform:translateX(0);}}
+      @keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:none;}}
+      @keyframes slideIn{from{opacity:0;transform:translateX(-12px);}to{opacity:1;transform:none;}}
       @keyframes toastIn{from{opacity:0;transform:translateY(14px) scale(.93);}to{opacity:1;transform:translateY(0) scale(1);}}
 
       /* ── Responsive grid helpers ── */

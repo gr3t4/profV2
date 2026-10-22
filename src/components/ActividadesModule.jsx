@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { sb, fetchAll } from "../lib/supabase";
 import { C, today, fmtDate } from "../lib/constants";
 import { Empty } from "./Shared";
@@ -37,9 +38,10 @@ function ActividadForm({ initial, ras, defRA, onSave, onClose }) {
     setBusy(false);
     if (err) setError(err);
   }
-  return (
+  // Se dibuja directo en <body> para que ninguna animación de la página la desacomode
+  return createPortal(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:22,width:"100%",maxWidth:440,boxShadow:"0 30px 80px rgba(0,0,0,0.6)",animation:"fadeUp .2s ease"}}>
+      <div style={{background:C.card,color:C.text,fontFamily:"Inter,sans-serif",border:`1px solid ${C.border}`,borderRadius:20,padding:22,width:"100%",maxWidth:440,boxShadow:"0 30px 80px rgba(0,0,0,0.6)",animation:"fadeUp .2s ease"}}>
         <div style={{fontWeight:700,fontSize:17,marginBottom:14}}>{initial ? "✏️ Editar actividad" : "📝 Nueva actividad"}</div>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div>
@@ -83,7 +85,8 @@ function ActividadForm({ initial, ras, defRA, onSave, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
