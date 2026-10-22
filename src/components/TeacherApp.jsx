@@ -605,19 +605,6 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
                 </div>
               </div>
             )}
-            {/* Lista completa: sugerir generar el mensaje de faltas */}
-            {!isViewer&&students.length>0&&counts.pending===0&&counts.absent>0&&(
-              <div style={{background:`${C.gold}14`,border:`1px solid ${C.gold}55`,borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                <div style={{flex:1,minWidth:180,fontSize:13,color:C.text}}>
-                  ✅ Lista completa · <b style={{color:C.danger}}>{counts.absent} falta{counts.absent===1?"":"s"}</b>
-                  <div style={{fontSize:12,color:C.muted,marginTop:2}}>Genera el mensaje con tu nombre, la materia y los alumnos con falta.</div>
-                </div>
-                <button className="btn" onClick={generarMensaje}
-                  style={{background:`linear-gradient(135deg,${C.gold},#8a6d3f)`,color:"#fff",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,fontFamily:"inherit",whiteSpace:"nowrap"}}>
-                  📋 Generar mensaje
-                </button>
-              </div>
-            )}
             {/* Filter chips */}
             <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
               {[["all","Todos",C.accent],["present","Presentes",C.success],["late","Retardos",C.late],["excused","Justificadas",C.excused],["absent","Ausentes",C.danger],["pending","Pendientes",C.muted]].map(([f,l,color])=>(
