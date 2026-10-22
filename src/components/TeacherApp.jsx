@@ -219,19 +219,6 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
     showToast(isNew ? (added ? `✅ Clase creada · ${added} alumnos en el grupo ${saved.grupo?.name||""}` : "✅ Clase creada") : "💾 Clase actualizada");
     if (isNew) selectSession(saved); // abre la clase nueva con la lista del grupo ya cargada
   }
-  // Turno del grupo: decide qué Prefectura (matutino o vespertino) lo ve; lo comparten todas sus materias
-  async function setTurno(turno) {
-    if (!activeSession || (activeSession.grupo?.turno || activeSession.turno) === turno) return;
-    const q = activeSession.grupo_id
-      ? sb.from("grupos").update({ turno }).eq("id", activeSession.grupo_id)
-      : sb.from("sessions").update({ turno }).eq("id", activeSession.id);
-    const { error } = await q;
-    if (error) { showToast("❌ " + error.message); return; }
-    const updated = { ...activeSession, turno, grupo: activeSession.grupo ? { ...activeSession.grupo, turno } : activeSession.grupo };
-    setActiveSess(updated);
-    setSessions(p => p.map(s => s.grupo_id && s.grupo_id === updated.grupo_id ? { ...s, grupo:{ ...s.grupo, turno } } : s.id === updated.id ? updated : s));
-    showToast(`${TURNOS[turno].icon} Prefectura ${TURNOS[turno].label.toLowerCase()}`);
-  }
   async function deleteSession(s) {
     if (!window.confirm(`¿Eliminar la clase "${nombreClase(s)}" y toda su asistencia?\nLa lista de alumnos del grupo no se borra.`)) return;
     const { error } = await sb.from("sessions").delete().eq("id", s.id);
@@ -461,22 +448,6 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
           <div style={{animation:"fadeUp .4s ease both"}}>
             {/* Date panel */}
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:"16px 18px",marginBottom:16}}>
-              {/* Prefectura (turno) del grupo */}
-              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
-                <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1}}>PREFECTURA · GRUPO {activeSession.grupo?.name || ""}</div>
-                <div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:3,gap:3,flex:"1 1 220px"}}>
-                  {Object.entries(TURNOS).map(([k,t])=>{
-                    const on = (activeSession.grupo?.turno || activeSession.turno)===k;
-                    return (
-                      <button key={k} className="btn" disabled={isViewer} onClick={()=>setTurno(k)}
-                        style={{flex:1,background:on?C.gold:"transparent",color:on?"#1a1200":C.muted,borderRadius:8,padding:"7px 8px",fontSize:13,fontWeight:on?700:500,fontFamily:"inherit",minHeight:34}}>
-                        {t.icon} {t.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {!(activeSession.grupo?.turno || activeSession.turno)&&<div style={{fontSize:11,color:C.warning,flexBasis:"100%"}}>⚠️ Elige el turno del grupo para que lo vea la Prefectura correcta.</div>}
-              </div>
               <div style={{fontSize:11,color:C.teal,fontWeight:700,letterSpacing:1,marginBottom:12}}>SELECTOR DE FECHA</div>
               {/* Fecha activa + horas + estado de guardado */}
               <div style={{display:"flex",gap:10,alignItems:"flex-end",marginBottom:14,flexWrap:"wrap"}}>
