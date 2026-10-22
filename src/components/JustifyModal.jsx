@@ -30,7 +30,7 @@ export default function JustifyModal({ student, date, currentReason, onSave, onC
         </div>
         <div style={{marginBottom:22}}>
           <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:1,marginBottom:8}}>MOTIVO PERSONALIZADO</div>
-          <textarea className="inp" placeholder="Escribe el motivo..." value={reason} onChange={e=>setReason(e.target.value)} style={{resize:"vertical",minHeight:80,lineHeight:1.6,width:"100%"}}/>
+          <textarea className="inp" placeholder="Ej. cita médica, asunto familiar… (sin diagnósticos ni datos íntimos)" value={reason} onChange={e=>setReason(e.target.value)} style={{resize:"vertical",minHeight:80,lineHeight:1.6,width:"100%"}}/>
         </div>
         <div style={{display:"flex",gap:10}}>
           <button className="btn" onClick={()=>onSave(reason.trim())}

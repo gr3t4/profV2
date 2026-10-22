@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { sb, fetchAll } from "../lib/supabase";
 import { queueAttendance, queueHours, flush, pendingCount, pendingFor, pendingDates, onPendingChange } from "../lib/offlineQueue";
 import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
@@ -11,6 +11,8 @@ import TutorModal from "./TutorModal";
 import MensajeModal from "./MensajeModal";
 import MiCuentaModal from "./MiCuentaModal";
 import ActividadesModule from "./ActividadesModule";
+import CalificacionesModule from "./CalificacionesModule";
+import { evalConfig, cargarDatosClase, evaluar, NIVEL } from "../lib/evaluacion";
 import ClaseForm from "./ClaseForm";
 import { horasDelDia, enCurso, inicioDelDia, resumenHorario, horaMX, nombreClase, tieneClase } from "../lib/horario";
 import { buildTutoriaMessage } from "../lib/whatsapp";
@@ -46,6 +48,9 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
   const [mensaje, setMensaje]           = useState(null); // texto del mensaje de faltas
   const [showCuenta, setShowCuenta]     = useState(false);
   const [importPreview, setImportPreview] = useState(null); // rows parsed, pending confirmación
+  const [evalDatos, setEvalDatos]       = useState(null); // { sid, att, acts, marks }
+  const [evalLoading, setEvalLoading]   = useState(false);
+  const [gradesFilter, setGradesFilter] = useState("all");
   const fileRef = useRef();
   const isViewer = user.role === "viewer";
 
@@ -105,6 +110,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
           if (attRows) setAllDates([...new Set([...attRows.map(r=>r.date), ...pend.dates])].sort().reverse());
           if (hoursRows) { const hm = {}; hoursRows.forEach(r=>{ hm[r.date]=r.hours; }); Object.assign(hm, pend.hours); setDateHours(hm); if (hm[d]) setClassHours(hm[d]); }
           if (live.current.selectedDate === d) await loadAttendanceForDate(s.id, d);
+          await loadEval(s);
         }
       } catch { /* sin conexión: se intenta después */ }
       finally { busy = false; }
@@ -116,8 +122,22 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
     return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("focus", refresh); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Datos para calificaciones y alertas de riesgo (asistencia completa + actividades)
+  async function loadEval(s) {
+    if (!s) return;
+    setEvalLoading(true);
+    try {
+      const d = await cargarDatosClase(s.id);
+      if (live.current.activeSession?.id === s.id || !live.current.activeSession) setEvalDatos({ sid: s.id, ...d });
+    } catch { /* sin conexión: se conserva lo anterior */ }
+    finally { setEvalLoading(false); }
+  }
+
   async function selectSession(s) {
     setActiveSess(s);
+    setEvalDatos(null); setGradesFilter("all");
+    live.current.activeSession = s;
+    loadEval(s);
     // La lista de alumnos es la del grupo (compartida por todas sus materias)
     const { data:studs } = s.grupo_id
       ? await fetchAll(() => sb.from("students").select("*").eq("grupo_id", s.grupo_id).eq("active", true).order("name").order("id"))
@@ -316,11 +336,37 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
     absent:  students.filter(s=>getStatus(s.id)==="absent").length,
     pending: students.filter(s=>getStatus(s.id)==="pending").length,
   };
+  // Calificaciones y riesgo (se recalculan al pasar lista, sin esperar al servidor)
+  const evalCfg = useMemo(() => evalConfig(activeSession), [activeSession]);
+  const stats = useMemo(() => {
+    if (!evalDatos || !activeSession || evalDatos.sid !== activeSession.id) return null;
+    const extraAtt = Object.entries(attendance).filter(([, r]) => r?.status).map(([id, r]) => ({ student_id:id, date:selectedDate, status:r.status }));
+    const att = evalDatos.att.filter(r => r.date !== selectedDate);
+    return evaluar({ students, att, acts: evalDatos.acts, marks: evalDatos.marks, cfg: evalCfg, extraAtt });
+  }, [evalDatos, activeSession, students, attendance, selectedDate, evalCfg]);
+
+  async function exportCalificaciones() {
+    if (!stats) { showToast("⏳ Aún se están cargando los datos"); return; }
+    showToast("⏳ Generando Excel…");
+    try {
+      const { exportarCalificaciones } = await import("../lib/exportAsistencia");
+      await exportarCalificaciones({ docente:user.name, grupo:activeSession.grupo?.name || "", materia:activeSession.materia || activeSession.name,
+        clase:nombreClase(activeSession), students, acts:evalDatos.acts, marks:evalDatos.marks, ev:stats, cfg:evalCfg });
+      showToast("📥 Excel descargado");
+    } catch (e) { showToast("❌ No se pudo generar el Excel: " + (e?.message || e)); }
+  }
+
+  function onSessionUpdated(s2) {
+    setActiveSess(s2);
+    setSessions(p => p.map(x => x.id === s2.id ? s2 : x));
+  }
+
   const filteredStudents = students.filter(s => filter==="all" ? true : filter==="pending" ? getStatus(s.id)==="pending" : getStatus(s.id)===filter);
 
   const MAIN_TABS = [
     { id:"attendance", label:"📋 Asistencia" },
     { id:"activities", label:"📝 Actividades" },
+    { id:"grades",     label:`🎓 Calificaciones${stats && (stats.resumen.reprobando + stats.resumen.riesgo) ? ` ⚠️${stats.resumen.reprobando + stats.resumen.riesgo}` : ""}` },
     { id:"report",     label:"📈 Reporte" },
   ];
 
@@ -363,7 +409,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
         <div className="tabs-scroll" style={{borderBottom:`1px solid ${C.border}`,background:C.surface,padding:"0 8px"}}>
           <div style={{maxWidth:980,margin:"0 auto",display:"flex",gap:4,minWidth:"max-content"}}>
             {MAIN_TABS.map(t=>(
-              <button key={t.id} className="btn" onClick={()=>setMainTab(t.id)}
+              <button key={t.id} className="btn" onClick={()=>{setMainTab(t.id); if(t.id==="grades") setGradesFilter("all");}}
                 style={{background:"none",color:mainTab===t.id?C.accent:C.muted,borderBottom:mainTab===t.id?`2px solid ${C.accent}`:"2px solid transparent",padding:"12px 12px",fontSize:14,fontFamily:"inherit",fontWeight:mainTab===t.id?600:400,whiteSpace:"nowrap",transition:"all .2s"}}>
                 {t.label}
               </button>
@@ -497,6 +543,20 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
                 </div>
               ))}
             </div>
+            {/* Alerta de alumnos en riesgo de reprobar */}
+            {stats&&(stats.resumen.reprobando+stats.resumen.riesgo)>0&&(
+              <button className="btn" onClick={()=>{setGradesFilter("risk");setMainTab("grades");}}
+                style={{width:"100%",textAlign:"left",background:`${C.danger}12`,border:`1px solid ${C.danger}55`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,fontFamily:"inherit",color:C.text}}>
+                <span style={{fontSize:20}}>⚠️</span>
+                <span style={{flex:1,fontSize:13}}>
+                  {stats.resumen.reprobando>0&&<b style={{color:C.danger}}>{stats.resumen.reprobando} reprobando</b>}
+                  {stats.resumen.reprobando>0&&stats.resumen.riesgo>0&&" · "}
+                  {stats.resumen.riesgo>0&&<b style={{color:C.warning}}>{stats.resumen.riesgo} en riesgo</b>}
+                  <span style={{color:C.muted}}> por faltas o actividades</span>
+                </span>
+                <span style={{color:C.accent,fontSize:13,fontWeight:600,whiteSpace:"nowrap"}}>Ver →</span>
+              </button>
+            )}
             {/* Toolbar */}
             {!isViewer&&(
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
@@ -533,7 +593,9 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                         <div style={{width:36,height:36,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,background:cfg.bg,color:cfg.color,flexShrink:0}}>{s.name.charAt(0).toUpperCase()}</div>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:600,fontSize:14,lineHeight:1.25,overflowWrap:"anywhere"}}>{s.name}</div>
+                          <div style={{fontWeight:600,fontSize:14,lineHeight:1.25,overflowWrap:"anywhere"}}>
+                            {stats?.porAlumno[s.id]?.nivel>0&&<span title={`${NIVEL[stats.porAlumno[s.id].nivel].label}: ${stats.porAlumno[s.id].motivos.join(" · ")}`}>{NIVEL[stats.porAlumno[s.id].nivel].icon} </span>}{s.name}
+                          </div>
                           <div style={{fontSize:11,color:cfg.color,display:"flex",alignItems:"center",gap:4,marginTop:1}}>
                             <span>{cfg.icon}</span><span>{cfg.label}</span>
                             {st==="excused"&&reason&&<span style={{color:C.muted,marginLeft:4}}>· {reason.length>25?reason.substring(0,25)+"…":reason}</span>}
@@ -581,7 +643,12 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
 
         {/* ACTIVIDADES TAB */}
         {view==="attendance"&&activeSession&&mainTab==="activities"&&(
-          <ActividadesModule key={activeSession.id} session={activeSession} students={students} isViewer={isViewer} showToast={showToast} sessionLabel={nombreClase(activeSession)}/>
+          <ActividadesModule key={activeSession.id} session={activeSession} students={students} isViewer={isViewer} showToast={showToast}
+            onDataChange={()=>loadEval(activeSession)} onExport={exportCalificaciones}/>
+        )}
+        {view==="attendance"&&activeSession&&mainTab==="grades"&&(
+          <CalificacionesModule key={activeSession.id+gradesFilter} session={activeSession} students={students} isViewer={isViewer} showToast={showToast}
+            stats={stats} cfg={evalCfg} loading={evalLoading} onSessionChange={onSessionUpdated} onExport={exportCalificaciones} initialFilter={gradesFilter}/>
         )}
 
         {/* REPORT TAB */}

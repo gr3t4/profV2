@@ -8,6 +8,9 @@ const TeacherApp = lazy(() => import("./components/TeacherApp"));
 const ViewerApp  = lazy(() => import("./components/ViewerApp"));
 const ParentView = lazy(() => import("./components/ParentView"));
 import InstallBanner from "./components/InstallBanner";
+import { sb } from "./lib/supabase";
+import { AVISO_VERSION } from "./lib/privacidad";
+const AvisoPrivacidad = lazy(() => import("./components/AvisoPrivacidad"));
 
 function Loading() {
   return (
@@ -41,7 +44,19 @@ function Screens() {
   );
 
   if (!user) return <><AuthScreen onLogin={login} onRegister={register}/><InstallBanner/></>;
-  if (user.role === "admin")  return <><AdminPanel  user={user} onLogout={logout}/><InstallBanner/></>;
-  if (user.role === "viewer") return <><ViewerApp   user={user} onLogout={logout}/><InstallBanner/></>;
-  return <><TeacherApp user={user} onLogout={logout} onProfileChange={updateProfile}/><InstallBanner/></>;
+
+  // Aviso de privacidad: se acepta una vez (y otra vez si el aviso cambia)
+  const debeAceptar = !user.privacy_accepted_at || user.privacy_accepted_at.slice(0, 10) < AVISO_VERSION;
+  const aviso = debeAceptar && (
+    <AvisoPrivacidad onLogout={logout} onAccept={async () => {
+      const { data, error } = await sb.rpc("accept_privacy");
+      if (error) return error.message.includes("fetch") ? "Sin internet. Intenta de nuevo." : error.message;
+      updateProfile({ privacy_accepted_at: typeof data === "string" ? data : new Date().toISOString() });
+      return null;
+    }}/>
+  );
+
+  if (user.role === "admin")  return <><AdminPanel  user={user} onLogout={logout}/>{aviso}<InstallBanner/></>;
+  if (user.role === "viewer") return <><ViewerApp   user={user} onLogout={logout}/>{aviso}<InstallBanner/></>;
+  return <><TeacherApp user={user} onLogout={logout} onProfileChange={updateProfile}/>{aviso}<InstallBanner/></>;
 }

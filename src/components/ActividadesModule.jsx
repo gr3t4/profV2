@@ -10,16 +10,20 @@ const ST = {
   missing:   { label:"No entregó", short:"✗", icon:"❌", color:C.danger },
 };
 
-function ActividadForm({ initial, onSave, onClose }) {
+function ActividadForm({ initial, defParcial, onSave, onClose }) {
   const [title, setTitle] = useState(initial?.title || "");
   const [due, setDue]     = useState(initial?.due_date || today());
   const [desc, setDesc]   = useState(initial?.description || "");
+  const [parcial, setParcial] = useState(initial?.parcial || defParcial || 1);
+  const [peso, setPeso]   = useState(String(initial?.peso ?? 1));
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState("");
   async function save() {
     if (!title.trim()) { setError("Escribe el nombre de la actividad"); return; }
+    const w = Number(peso);
+    if (!(w > 0 && w <= 100)) { setError("El valor debe ser un número mayor que 0 (por ejemplo 1, 2 o 3)"); return; }
     setBusy(true); setError("");
-    const err = await onSave({ title: title.trim(), due_date: due || null, description: desc.trim() || null });
+    const err = await onSave({ title: title.trim(), due_date: due || null, description: desc.trim() || null, parcial: Number(parcial), peso: w });
     setBusy(false);
     if (err) setError(err);
   }
@@ -36,6 +40,19 @@ function ActividadForm({ initial, onSave, onClose }) {
             <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Fecha de entrega</div>
             <input className="inp" type="date" value={due} onChange={e=>setDue(e.target.value)}/>
           </div>
+          <div style={{display:"flex",gap:10}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Parcial</div>
+              <select className="inp" value={parcial} onChange={e=>setParcial(e.target.value)}>
+                {[1,2,3].map(n => <option key={n} value={n}>Parcial {n}</option>)}
+              </select>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Valor (peso)</div>
+              <input className="inp" type="number" min="0.5" step="0.5" inputMode="decimal" value={peso} onChange={e=>setPeso(e.target.value)}/>
+            </div>
+          </div>
+          <div style={{fontSize:11,color:C.muted,marginTop:-6}}>El valor indica cuánto pesa en el promedio del parcial: un examen con valor 3 cuenta como tres actividades de valor 1.</div>
           <div>
             <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Descripción (opcional)</div>
             <textarea className="inp" rows={3} placeholder="Instrucciones, criterios, etc." value={desc} onChange={e=>setDesc(e.target.value)} style={{resize:"vertical"}}/>
@@ -55,13 +72,27 @@ function ActividadForm({ initial, onSave, onClose }) {
   );
 }
 
-export default function ActividadesModule({ session, students, isViewer, showToast, sessionLabel }) {
+// Casilla de calificación: se guarda al salir de la casilla o con Enter
+function ScoreInput({ value, disabled, onCommit }) {
+  const [v, setV] = useState(value === undefined || value === null ? "" : String(value));
+  const commit = async () => { const ok = await onCommit(v); if (!ok) setV(value === undefined || value === null ? "" : String(value)); };
+  return (
+    <input className="inp" value={disabled ? "0" : v} disabled={disabled} inputMode="decimal" placeholder="Calif."
+      title="Calificación de 0 a 10 (vacío = automática: entregó 10, tarde según configuración, no entregó 0)"
+      onChange={e => setV(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+      style={{width:62,flexShrink:0,padding:"6px 6px",fontSize:14,textAlign:"center",minHeight:0}}/>
+  );
+}
+
+export default function ActividadesModule({ session, students, isViewer, showToast, onDataChange, onExport }) {
   const [acts, setActs]       = useState([]);
   const [marks, setMarks]     = useState({});   // activity_id -> { student_id: status }
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId]   = useState(null);
   const [form, setForm]       = useState(null); // null | { initial }
   const [filter, setFilter]   = useState("all");
+  const [scores, setScores]   = useState({});   // activity_id -> { student_id: calificación }
+  const [parcialF, setParcialF] = useState(0);  // 0 = todos
 
   useEffect(() => {
     let alive = true;
@@ -70,13 +101,13 @@ export default function ActividadesModule({ session, students, isViewer, showToa
       const { data: a } = await sb.from("activities").select("*").eq("session_id", session.id)
         .order("due_date", { ascending:false, nullsFirst:false }).order("created_at", { ascending:false });
       const ids = (a || []).map(x => x.id);
-      const m = {};
+      const m = {}, sc = {};
       if (ids.length) {
-        const { data: mk } = await fetchAll(() => sb.from("activity_marks").select("activity_id,student_id,status").in("activity_id", ids).order("id"));
-        (mk || []).forEach(r => { (m[r.activity_id] ??= {})[r.student_id] = r.status; });
+        const { data: mk } = await fetchAll(() => sb.from("activity_marks").select("activity_id,student_id,status,score").in("activity_id", ids).order("id"));
+        (mk || []).forEach(r => { (m[r.activity_id] ??= {})[r.student_id] = r.status; if (r.score !== null && r.score !== undefined) (sc[r.activity_id] ??= {})[r.student_id] = Number(r.score); });
       }
       if (!alive) return;
-      setActs(a || []); setMarks(m); setLoading(false);
+      setActs(a || []); setMarks(m); setScores(sc); setLoading(false);
     })();
     return () => { alive = false; };
   }, [session.id]);
@@ -102,6 +133,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
       showToast("✅ Actividad creada");
     }
     setForm(null);
+    onDataChange?.();
     return null;
   }
 
@@ -112,6 +144,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
     setActs(p => p.filter(x => x.id !== a.id));
     if (openId === a.id) setOpenId(null);
     showToast("🗑️ Actividad eliminada");
+    onDataChange?.();
   }
 
   // Marca (o quita, si se toca la misma opción) la entrega de uno o varios alumnos
@@ -126,29 +159,37 @@ export default function ActividadesModule({ session, students, isViewer, showToa
     if (error) {
       setMarks(p => ({ ...p, [actId]: prev }));
       showToast("❌ No se guardó: " + (error.message.includes("fetch") ? "sin internet" : error.message));
+      return;
     }
+    if (!status) setScores(p => { const n = { ...(p[actId] || {}) }; studentIds.forEach(id => delete n[id]); return { ...p, [actId]: n }; });
+    onDataChange?.();
   }
 
-  async function exportXlsx() {
-    const XLSX = await import("xlsx");
-    const ordered = [...acts].sort((a, b) => (a.due_date || "").localeCompare(b.due_date || "") || a.created_at.localeCompare(b.created_at));
-    const header = ["Alumno", ...ordered.map(a => `${a.title}${a.due_date ? ` (${a.due_date.slice(8,10)}/${a.due_date.slice(5,7)})` : ""}`), "Entregadas", "Tarde", "No entregadas", "% Entrega"];
-    const rows = students.map(s => {
-      let d = 0, l = 0, m = 0;
-      const cells = ordered.map(a => {
-        const st = marks[a.id]?.[s.id];
-        if (st === "delivered") d++; else if (st === "late") l++; else if (st === "missing") m++;
-        return st ? ST[st].short : "-";
-      });
-      return [s.name, ...cells, d, l, m, ordered.length ? Math.round(((d + l) / ordered.length) * 100) + "%" : "-"];
-    });
-    const ws = XLSX.utils.aoa_to_sheet([[`Actividades — ${sessionLabel}`], [], header, ...rows, [], ["✓ entregó · T entregó tarde · ✗ no entregó · - sin registro"]]);
-    ws["!cols"] = [{ wch:36 }, ...ordered.map(() => ({ wch:14 })), { wch:11 }, { wch:7 }, { wch:14 }, { wch:10 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Actividades");
-    XLSX.writeFile(wb, `actividades_${sessionLabel.replace(/[^\p{L}\p{N}]+/gu, "_")}.xlsx`);
-    showToast("📥 Excel descargado");
+  // Calificación (0-10) de un alumno en una actividad; vacío = se usa la calificación automática
+  async function setScore(actId, studentId, raw) {
+    const txt = String(raw).trim().replace(",", ".");
+    const val = txt === "" ? null : Number(txt);
+    if (val !== null && !(val >= 0 && val <= 10)) { showToast("⚠️ La calificación va de 0 a 10"); return false; }
+    const cur = scores[actId]?.[studentId] ?? null;
+    if (cur === val) return true;
+    const status = marks[actId]?.[studentId] || (val === null ? null : "delivered");
+    if (!status) return true;
+    const prevS = { ...(scores[actId] || {}) }, prevM = { ...(marks[actId] || {}) };
+    setScores(p => { const n = { ...(p[actId] || {}) }; if (val === null) delete n[studentId]; else n[studentId] = val; return { ...p, [actId]: n }; });
+    setMarks(p => ({ ...p, [actId]: { ...(p[actId] || {}), [studentId]: status } }));
+    const { error } = await sb.from("activity_marks").upsert({ activity_id: actId, student_id: studentId, status, score: val, updated_at: new Date().toISOString() }, { onConflict:"activity_id,student_id" });
+    if (error) {
+      setScores(p => ({ ...p, [actId]: prevS })); setMarks(p => ({ ...p, [actId]: prevM }));
+      showToast("❌ No se guardó: " + (error.message.includes("fetch") ? "sin internet" : error.message));
+      return false;
+    }
+    onDataChange?.();
+    return true;
   }
+
+  // El Excel de actividades es el mismo de calificaciones: una hoja por parcial con
+  // cada actividad, su calificación y colores (entregó / tarde / no entregó).
+  function exportXlsx() { onExport?.(); }
 
   const open = acts.find(a => a.id === openId) || null;
   const openMarks = open ? (marks[open.id] || {}) : {};
@@ -162,7 +203,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
     const total = students.length || 1;
     return (
       <div style={{animation:"fadeUp .3s ease both"}}>
-        {form && <ActividadForm initial={form.initial} onSave={saveActivity} onClose={() => setForm(null)}/>}
+        {form && <ActividadForm initial={form.initial} defParcial={parcialF || undefined} onSave={saveActivity} onClose={() => setForm(null)}/>}
         <button className="btn" onClick={() => { setOpenId(null); setFilter("all"); }}
           style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit",marginBottom:12}}>
           ← Todas las actividades
@@ -171,7 +212,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
           <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:800,fontSize:18,overflowWrap:"anywhere"}}>{open.title}</div>
-              <div style={{color:C.muted,fontSize:12,marginTop:3}}>📅 Entrega: {open.due_date ? fmtDate(open.due_date) : "sin fecha"}</div>
+              <div style={{color:C.muted,fontSize:12,marginTop:3}}>📅 Entrega: {open.due_date ? fmtDate(open.due_date) : "sin fecha"} · Parcial {open.parcial || 1} · Valor {Number(open.peso ?? 1)}</div>
               {open.description && <div style={{fontSize:13,marginTop:8,color:C.text,whiteSpace:"pre-wrap"}}>{open.description}</div>}
             </div>
             {!isViewer && <button className="btn" title="Editar" onClick={() => setForm({ initial: open })} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 9px",flexShrink:0}}>✏️</button>}
@@ -214,6 +255,10 @@ export default function ActividadesModule({ session, students, isViewer, showToa
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:isViewer?0:8}}>
                     <div style={{flex:1,minWidth:0,fontWeight:600,fontSize:14,overflowWrap:"anywhere"}}>{s.name}</div>
                     <span style={{fontSize:11,fontWeight:700,color:cfg?cfg.color:C.muted,flexShrink:0}}>{cfg ? `${cfg.icon} ${cfg.label}` : "⏳ Sin registro"}</span>
+                    {isViewer
+                      ? (scores[open.id]?.[s.id] !== undefined && <span style={{fontWeight:800,fontSize:14,flexShrink:0}}>{scores[open.id][s.id]}</span>)
+                      : <ScoreInput key={`${open.id}-${s.id}-${scores[open.id]?.[s.id] ?? ""}`} value={scores[open.id]?.[s.id]} disabled={st === "missing"}
+                          onCommit={v => setScore(open.id, s.id, v)}/>}
                   </div>
                   {!isViewer && (
                     <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:6}}>
@@ -240,7 +285,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
   // ── Lista de actividades ──
   return (
     <div style={{animation:"fadeUp .3s ease both"}}>
-      {form && <ActividadForm initial={form.initial} onSave={saveActivity} onClose={() => setForm(null)}/>}
+      {form && <ActividadForm initial={form.initial} defParcial={parcialF || undefined} onSave={saveActivity} onClose={() => setForm(null)}/>}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
         <div>
           <div style={{fontWeight:800,fontSize:18}}>Actividades</div>
@@ -252,9 +297,19 @@ export default function ActividadesModule({ session, students, isViewer, showToa
         </div>
       </div>
 
+      {acts.length > 0 && (
+        <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
+          {[0,1,2,3].map(n => (
+            <button key={n} className="btn chip" onClick={() => setParcialF(n)}
+              style={{background:parcialF===n?`${C.accent}22`:"transparent",color:parcialF===n?C.accent:C.muted,borderColor:parcialF===n?C.accent:C.border}}>
+              {n === 0 ? "Todos" : `Parcial ${n}`} <span style={{opacity:.7}}>({n === 0 ? acts.length : acts.filter(a => (a.parcial || 1) === n).length})</span>
+            </button>
+          ))}
+        </div>
+      )}
       {acts.length === 0 ? <Empty icon="📝" msg="Aún no hay actividades. Registra la primera para llevar el control de entregas."/> : (
         <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:10}}>
-          {acts.map(a => {
+          {acts.filter(a => !parcialF || (a.parcial || 1) === parcialF).map(a => {
             const c = countsOf(a.id);
             const total = students.length || 1;
             const vencida = a.due_date && a.due_date < today();
@@ -264,7 +319,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
                 <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:700,fontSize:15,overflowWrap:"anywhere"}}>{a.title}</div>
-                    <div style={{fontSize:12,color:vencida?C.warning:C.muted,marginTop:2}}>📅 {a.due_date ? fmtDate(a.due_date) : "Sin fecha"}{vencida && c.pending ? " · vencida" : ""}</div>
+                    <div style={{fontSize:12,color:vencida?C.warning:C.muted,marginTop:2}}>📅 {a.due_date ? fmtDate(a.due_date) : "Sin fecha"}{vencida && c.pending ? " · vencida" : ""} · <span style={{color:C.gold}}>P{a.parcial || 1} · valor {Number(a.peso ?? 1)}</span></div>
                   </div>
                   {!isViewer && (
                     <div style={{display:"flex",gap:6,flexShrink:0}}>

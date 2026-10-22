@@ -68,7 +68,7 @@ export function useAuth() {
         return;
       }
       setConnError(false);
-      const u = { id: authUser.id, username: profile.username, name: profile.name, role: profile.role, turno: profile.turno || null };
+      const u = { id: authUser.id, username: profile.username, name: profile.name, role: profile.role, turno: profile.turno || null, privacy_accepted_at: profile.privacy_accepted_at || null };
       writeCachedProfile(u);
       setUser(prev => (prev && JSON.stringify(prev) === JSON.stringify(u)) ? prev : u);
     } catch {
