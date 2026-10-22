@@ -275,46 +275,21 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
   }
 
   async function handleExport(type) {
-    const XLSX = await import("xlsx");
-    const sessName = nombreClase(activeSession) || "sesion";
-    const dateList = [...allDates].sort();
-    const { data:allAtt } = await fetchAll(() => sb.from("attendance").select("student_id,date,status,reason").eq("session_id", activeSession.id).order("id"));
-    const idx = {}; (allAtt||[]).forEach(r => { if (!idx[r.student_id]) idx[r.student_id] = {}; idx[r.student_id][r.date] = { status:r.status, reason:r.reason||"" }; });
-    const wb = XLSX.utils.book_new();
-    function sheetDate() {
-      return XLSX.utils.aoa_to_sheet([["Alumno","Estado","Motivo"], ...students.map(s => { const rec = attendance[s.id]||{}; return [s.name, STATUS[rec.status||"pending"]?.label||"-", rec.reason||""]; })]);
-    }
-    function sheetFull() {
-      const header = ["Alumno",...dateList,"Presencias","Retardos","Justificadas","Faltas","% Asist."];
-      const rows = students.map(s => {
-        const row = [s.name,...dateList.map(d => STATUS[idx[s.id]?.[d]?.status]?.short||"-")];
-        const ps = row.slice(1).filter(x=>x==="P").length, rs = row.slice(1).filter(x=>x==="R").length;
-        const js = row.slice(1).filter(x=>x==="J").length, fs = row.slice(1).filter(x=>x==="F").length;
-        return [...row, ps, rs, js, fs, dateList.length>0?Math.round(((ps+rs+js)/dateList.length)*100)+"%":"-"];
+    showToast("⏳ Generando Excel…");
+    try {
+      const { data:allAtt } = await fetchAll(() => sb.from("attendance").select("student_id,date,status,reason").eq("session_id", activeSession.id).order("id"));
+      const idx = {}; (allAtt||[]).forEach(r => { if (!idx[r.student_id]) idx[r.student_id] = {}; idx[r.student_id][r.date] = { status:r.status, reason:r.reason||"" }; });
+      // Lo marcado sin internet también entra en el reporte
+      for (const d of allDates) { const p = pendingFor(activeSession.id, d); for (const id in p) { (idx[id] ||= {})[d] = p[id]; } }
+      const { exportarAsistencia } = await import("../lib/exportAsistencia");
+      const ok = await exportarAsistencia(type, {
+        docente: user.name, grupo: activeSession.grupo?.name || "", materia: activeSession.materia || activeSession.name,
+        clase: nombreClase(activeSession), selectedDate, dates: [...allDates].sort(), students, attendanceDay: attendance, idx,
       });
-      return XLSX.utils.aoa_to_sheet([header,...rows]);
+      showToast(ok ? "📥 Excel descargado" : "⚠️ Sin alumnos");
+    } catch (e) {
+      showToast("❌ No se pudo generar el Excel: " + (e?.message || e));
     }
-    function sheetJustify() {
-      const rows = [["Alumno","Fecha","Motivo"]];
-      for (const s of students) for (const d of dateList) { const rec = idx[s.id]?.[d]; if (rec?.status==="excused") rows.push([s.name,d,rec.reason||"(sin motivo)"]); }
-      if (rows.length===1) rows.push(["Sin faltas justificadas","",""]);
-      return XLSX.utils.aoa_to_sheet(rows);
-    }
-    function sheetsPerStudent() {
-      return students.map(s => {
-        const rows = [["Fecha","Estado","Motivo"],...dateList.map(d => { const rec = idx[s.id]?.[d]; return [d, STATUS[rec?.status||"pending"]?.label||"-", rec?.status==="excused"?rec.reason||"":""]; })];
-        const ps = rows.slice(1).filter(r=>r[1]==="Presente").length, rs = rows.slice(1).filter(r=>r[1]==="Retardo").length;
-        const js = rows.slice(1).filter(r=>r[1]==="Justificada").length, fs = rows.slice(1).filter(r=>r[1]==="Ausente").length;
-        rows.push([],["RESUMEN","",""],["Presencias",ps,""],["Retardos",rs,""],["Justificadas",js,""],["Faltas",fs,""],["% Asistencia",dateList.length>0?Math.round(((ps+rs+js)/dateList.length)*100)+"%":"-",""]);
-        return { name:s.name.substring(0,30), ws:XLSX.utils.aoa_to_sheet(rows) };
-      });
-    }
-    if (type==="date") { XLSX.utils.book_append_sheet(wb,sheetDate(),`Asist_${selectedDate}`); XLSX.writeFile(wb,`asistencia_${sessName}_${selectedDate}.xlsx`); }
-    else if (type==="full") { XLSX.utils.book_append_sheet(wb,sheetFull(),"Reporte completo"); XLSX.writeFile(wb,`reporte_${sessName}.xlsx`); }
-    else if (type==="justify") { XLSX.utils.book_append_sheet(wb,sheetJustify(),"Justificaciones"); XLSX.writeFile(wb,`justificaciones_${sessName}.xlsx`); }
-    else if (type==="student") { const sh = sheetsPerStudent(); if (!sh.length){showToast("⚠️ Sin alumnos");return;} sh.forEach(({name,ws})=>XLSX.utils.book_append_sheet(wb,ws,name)); XLSX.writeFile(wb,`alumnos_${sessName}.xlsx`); }
-    else if (type==="all") { XLSX.utils.book_append_sheet(wb,sheetDate(),`Asist_${selectedDate}`); XLSX.utils.book_append_sheet(wb,sheetFull(),"Reporte completo"); XLSX.utils.book_append_sheet(wb,sheetJustify(),"Justificaciones"); sheetsPerStudent().forEach(({name,ws})=>XLSX.utils.book_append_sheet(wb,ws,name)); XLSX.writeFile(wb,`completo_${sessName}.xlsx`); }
-    showToast("📥 Excel descargado");
   }
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 3000); }
