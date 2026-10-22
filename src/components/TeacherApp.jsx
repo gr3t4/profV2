@@ -644,7 +644,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
         {/* ACTIVIDADES TAB */}
         {view==="attendance"&&activeSession&&mainTab==="activities"&&(
           <ActividadesModule key={activeSession.id} session={activeSession} students={students} isViewer={isViewer} showToast={showToast}
-            onDataChange={()=>loadEval(activeSession)} onExport={exportCalificaciones}/>
+            onDataChange={()=>loadEval(activeSession)} onExport={exportCalificaciones} onSessionChange={onSessionUpdated}/>
         )}
         {view==="attendance"&&activeSession&&mainTab==="grades"&&(
           <CalificacionesModule key={activeSession.id+gradesFilter} session={activeSession} students={students} isViewer={isViewer} showToast={showToast}

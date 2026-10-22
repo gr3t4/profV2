@@ -35,3 +35,7 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION accept_privacy() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION accept_privacy() TO authenticated;
+
+-- Resultado de aprendizaje (RA) al que pertenece cada actividad (2026-10-22).
+-- La lista de RA de cada clase vive en sessions.eval_config.ras
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS ra text;

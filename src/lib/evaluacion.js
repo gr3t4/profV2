@@ -18,12 +18,16 @@ export const EVAL_DEFAULT = {
   asistencia_min: 80,     // % mínimo de asistencia para tener derecho
   margen_riesgo: 5,       // puntos sobre el mínimo de asistencia para avisar "en riesgo"
   entregas_min: 70,       // % mínimo de actividades entregadas
-  parciales: [{ inicio:"", fin:"" }, { inicio:"", fin:"" }, { inicio:"", fin:"" }],
+  ras: [],                // resultados de aprendizaje de la clase: [{ id, clave, nombre }]
 };
+
+export const SIN_RA = "__sin_ra";
+export const nuevoIdRA = () => "ra" + Math.random().toString(36).slice(2, 9);
+export const etiquetaRA = (r) => r ? `RA ${r.clave}` : "Sin RA";
 
 export function evalConfig(session) {
   const c = { ...EVAL_DEFAULT, ...(session?.eval_config || {}) };
-  c.parciales = [0, 1, 2].map(i => ({ ...EVAL_DEFAULT.parciales[i], ...(c.parciales?.[i] || {}) }));
+  c.ras = Array.isArray(c.ras) ? c.ras.filter(r => r && r.id) : [];
   return c;
 }
 
@@ -54,11 +58,11 @@ export function puntaje(mark, cfg) {
   return null;
 }
 
-const enRango = (d, p) => (!p.inicio || d >= p.inicio) && (!p.fin || d <= p.fin);
 
 /**
  * Evalúa a todos los alumnos.
- * Devuelve { porAlumno: {id: {...}}, resumen: {reprobando, riesgo}, fechas, actsPorParcial }
+ * Devuelve { porAlumno: {id: {...}}, resumen: {reprobando, riesgo}, fechas, grupos }
+ *   grupos: [{ id, ra (o null = sin RA), acts }] — un grupo por resultado de aprendizaje
  */
 export function evaluar({ students, att, acts, marks, cfg, extraAtt = [] }) {
   // Asistencia: { student: { date: status } }
@@ -69,8 +73,10 @@ export function evaluar({ students, att, acts, marks, cfg, extraAtt = [] }) {
   const M = {};
   for (const m of marks) (M[m.activity_id] ||= {})[m.student_id] = m;
 
-  const actsPorParcial = [1, 2, 3].map(p => acts.filter(a => (a.parcial || 1) === p));
-  const hayFechasParcial = cfg.parciales.some(p => p.inicio || p.fin);
+  const idsRA = new Set(cfg.ras.map(r => r.id));
+  const grupos = cfg.ras.map(r => ({ id: r.id, ra: r, acts: acts.filter(a => a.ra === r.id) }));
+  const sinRA = acts.filter(a => !a.ra || !idsRA.has(a.ra));
+  if (sinRA.length) grupos.push({ id: SIN_RA, ra: null, acts: sinRA });
 
   const porAlumno = {};
   for (const s of students) {
@@ -82,8 +88,8 @@ export function evaluar({ students, att, acts, marks, cfg, extraAtt = [] }) {
     };
     const asistTotal = asistDe(fechas);
 
-    const parciales = [0, 1, 2].map(i => {
-      const lista = actsPorParcial[i];
+    const porRA = grupos.map(g => {
+      const lista = g.acts;
       let suma = 0, pesos = 0, entregadas = 0, noEntregadas = 0, calificadas = 0;
       for (const a of lista) {
         const m = M[a.id]?.[s.id];
@@ -94,19 +100,16 @@ export function evaluar({ students, att, acts, marks, cfg, extraAtt = [] }) {
         suma += pts * Number(a.peso || 1); pesos += Number(a.peso || 1);
       }
       const promAct = pesos ? suma / pesos : null;
-      const fs = hayFechasParcial ? fechas.filter(d => enRango(d, cfg.parciales[i])) : fechas;
-      const asis = asistDe(fs);
+      const asis = asistTotal;
       const pa = Number(cfg.pct_asistencia) / 100;
       let cal = null;
       if (promAct !== null) cal = pa > 0 && asis.pct !== null ? promAct * (1 - pa) + (asis.pct / 10) * pa : promAct;
-      return { promAct: r1(promAct), cal: r1(cal), entregadas, noEntregadas, calificadas, total: lista.length, asis };
+      return { id: g.id, promAct: r1(promAct), cal: r1(cal), entregadas, noEntregadas, calificadas, total: lista.length, asis };
     });
+    const cals = Object.fromEntries(porRA.map(p => [p.id, p]));
 
-    const conCal = parciales.filter(p => p.cal !== null);
-    const final = conCal.length ? r1(conCal.reduce((a, p) => a + p.cal, 0) / conCal.length) : null;
-
-    const totEnt = parciales.reduce((a, p) => a + p.entregadas, 0);
-    const totCalif = parciales.reduce((a, p) => a + p.calificadas, 0);
+    const totEnt = porRA.reduce((a, p) => a + p.entregadas, 0);
+    const totCalif = porRA.reduce((a, p) => a + p.calificadas, 0);
     const pctEntregas = totCalif ? (totEnt / totCalif) * 100 : null;
 
     // ── Riesgo ──
@@ -121,16 +124,26 @@ export function evaluar({ students, att, acts, marks, cfg, extraAtt = [] }) {
       nivel = Math.max(nivel, 1);
       motivos.push(`Entregó ${totEnt} de ${totCalif} actividades`);
     }
-    if (final !== null && final < Number(cfg.aprobatoria)) {
-      nivel = 2; motivos.push(`Promedio ${final} (mínimo ${cfg.aprobatoria})`);
-    } else if (final !== null && final < Number(cfg.aprobatoria) + 1) {
-      nivel = Math.max(nivel, 1); motivos.push(`Promedio ${final}, cerca de reprobar`);
-    }
+    const apr = Number(cfg.aprobatoria);
+    grupos.forEach((g, i) => {
+      const c = porRA[i].cal;
+      if (c === null) return;
+      const nom = etiquetaRA(g.ra);
+      if (c < apr) { nivel = 2; motivos.push(`${nom}: ${c} (mínimo ${apr})`); }
+      else if (c < apr + 1) { nivel = Math.max(nivel, 1); motivos.push(`${nom}: ${c}, cerca de reprobar`); }
+    });
 
-    porAlumno[s.id] = { asist: asistTotal, parciales, final, pctEntregas, totEnt, totCalif, nivel, motivos };
+    porAlumno[s.id] = { asist: asistTotal, porRA, cals, pctEntregas, totEnt, totCalif, nivel, motivos };
   }
 
   const resumen = { reprobando: 0, riesgo: 0 };
   for (const id in porAlumno) { if (porAlumno[id].nivel === 2) resumen.reprobando++; else if (porAlumno[id].nivel === 1) resumen.riesgo++; }
-  return { porAlumno, resumen, fechas, actsPorParcial };
+  return { porAlumno, resumen, fechas, grupos };
+}
+
+// Guarda la configuración de evaluación de la clase y devuelve la clase actualizada
+export async function guardarConfig(sessionId, cfg) {
+  const { data, error } = await sb.from("sessions").update({ eval_config: cfg }).eq("id", sessionId).select("*, grupo:grupos(id,name,turno)").single();
+  if (error) throw new Error(error.message);
+  return data;
 }

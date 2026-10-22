@@ -287,7 +287,7 @@ export async function exportarAsistencia(type, ctx) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  Calificaciones (resumen + una hoja por parcial con sus actividades)
+//  Calificaciones por resultado de aprendizaje (resumen + una hoja por RA)
 // ══════════════════════════════════════════════════════════════════
 const SIT = {
   2: { label:"Reprobando", fill:"FFFFC7CE", font:"FF9C0006" },
@@ -322,50 +322,62 @@ export async function exportarCalificaciones(ctx) {
   // ── Resumen ──
   {
     const ws = wb.addWorksheet("Calificaciones", { views:[{ showGridLines:false }] });
-    ws.columns = [{ width:5 }, { width:36 }, { width:8 }, { width:8 }, { width:8 }, { width:9 }, { width:11 }, { width:10 }, { width:13 }, { width:44 }];
-    let r = encabezado(wb, ws, logoId, 10, "Concentrado de calificaciones", [info1, reglas], false);
-    cabeceraTabla(ws, r, ["No.", "Alumno", "Parcial 1", "Parcial 2", "Parcial 3", "Final", "Asistencia", "Entregas", "Situación", "Observaciones"]);
+    const G = ev.grupos, nG = G.length, nCols = 2 + nG + 4;
+    ws.columns = [{ width:5 }, { width:36 }, ...G.map(() => ({ width:9 })), { width:11 }, { width:10 }, { width:13 }, { width:44 }];
+    let r = encabezado(wb, ws, logoId, nCols, "Concentrado de calificaciones por resultado de aprendizaje", [info1, reglas], false);
+    cabeceraTabla(ws, r, ["No.", "Alumno", ...G.map(g => g.ra ? `RA ${g.ra.clave}` : "Sin RA"), "Asistencia", "Entregas", "Situación", "Observaciones"]);
     ws.views = [{ state:"frozen", ySplit:r, showGridLines:false }];
     ctx.students.forEach((s, i) => {
       r++;
       const e = ev.porAlumno[s.id];
       celda(ws.getCell(r, 1), i + 1, { align:"center" });
       celda(ws.getCell(r, 2), s.name);
-      e.parciales.forEach((p, j) => celdaCal(ws.getCell(r, 3 + j), p.cal, apr));
-      celdaCal(ws.getCell(r, 6), e.final, apr);
-      const ca = ws.getCell(r, 7);
+      G.forEach((g, j) => celdaCal(ws.getCell(r, 3 + j), e.cals[g.id]?.cal ?? null, apr));
+      const ca = ws.getCell(r, 3 + nG);
       ca.value = e.asist.pct === null ? "—" : e.asist.pct / 100; ca.numFmt = "0%"; ca.border = BORDER; ca.alignment = { horizontal:"center" };
       if (e.asist.pct !== null) ca.font = { bold:true, color:{ argb: e.asist.pct < Number(cfg.asistencia_min) ? "FF9C0006" : "FF006100" } };
-      celda(ws.getCell(r, 8), e.totCalif ? `${e.totEnt}/${e.totCalif}` : "—", { align:"center" });
+      celda(ws.getCell(r, 4 + nG), e.totCalif ? `${e.totEnt}/${e.totCalif}` : "—", { align:"center" });
       const sit = SIT[e.nivel];
-      celda(ws.getCell(r, 9), sit.label, { align:"center", fill:sit.fill, font:{ bold:true, color:{ argb:sit.font } } });
-      celda(ws.getCell(r, 10), e.motivos.join(" · "), { wrap:true, font:{ size:9 } });
+      celda(ws.getCell(r, 5 + nG), sit.label, { align:"center", fill:sit.fill, font:{ bold:true, color:{ argb:sit.font } } });
+      celda(ws.getCell(r, 6 + nG), e.motivos.join(" · "), { wrap:true, font:{ size:9 } });
     });
     r += 2;
-    ws.mergeCells(r, 1, r, 10);
+    // Descripción de cada RA
+    G.filter(g => g.ra).forEach(g => {
+      ws.mergeCells(r, 2, r, nCols);
+      ws.getCell(r, 1).value = ""; ws.getCell(r, 2).value = `RA ${g.ra.clave}: ${g.ra.nombre || "(sin descripción)"}`;
+      ws.getCell(r, 2).font = { size:9, color:{ argb:"FF404040" } };
+      r++;
+    });
+    r++;
+    ws.mergeCells(r, 1, r, nCols);
     ws.getCell(r, 1).value = `Reprobando: ${ev.resumen.reprobando}   ·   En riesgo: ${ev.resumen.riesgo}   ·   Bien: ${ctx.students.length - ev.resumen.reprobando - ev.resumen.riesgo}`;
     ws.getCell(r, 1).font = { bold:true, size:10, color:{ argb:GUINDA } };
-    pie(ws, r + 2, 10);
+    pie(ws, r + 2, nCols);
     impresion(ws, true);
   }
 
-  // ── Una hoja por parcial ──
-  [0, 1, 2].forEach(i => {
-    const acts = ev.actsPorParcial[i];
+  // ── Una hoja por resultado de aprendizaje ──
+  const usados = new Set(["calificaciones"]);
+  ev.grupos.forEach((g, i) => {
+    const acts = g.acts;
     if (!acts.length) return;
+    const titulo = g.ra ? `RA ${g.ra.clave}` : "Sin RA";
+    let hoja = safeSheet(titulo), k2 = 2;
+    while (usados.has(hoja.toLowerCase())) hoja = safeSheet(titulo.slice(0, 26)) + " " + k2++;
+    usados.add(hoja.toLowerCase());
     const nCols = 2 + acts.length + 3;
-    const ws = wb.addWorksheet(`Parcial ${i + 1}`, { views:[{ showGridLines:false }] });
+    const ws = wb.addWorksheet(hoja, { views:[{ showGridLines:false }] });
     ws.columns = [{ width:5 }, { width:34 }, ...acts.map(() => ({ width:9 })), { width:10 }, { width:10 }, { width:10 }];
-    const p = cfg.parciales[i];
-    const rango = p.inicio || p.fin ? `Del ${p.inicio ? fmtCorta(p.inicio) : "inicio"} al ${p.fin ? fmtCorta(p.fin) : "fin"}` : "Asistencia de todo el periodo";
-    let r = encabezado(wb, ws, logoId, nCols, `Parcial ${i + 1} — actividades`, [info1, `${rango}   ·   Entregó sin calificación = 10 · Tarde = ${cfg.nota_tarde} · No entregó = 0`], false);
+    const desc = g.ra?.nombre ? `${titulo}: ${g.ra.nombre}` : titulo;
+    let r = encabezado(wb, ws, logoId, nCols, desc.length > 90 ? desc.slice(0, 88) + "…" : desc, [info1, `Entregó sin calificación = 10 · Tarde = ${cfg.nota_tarde} · No entregó = 0`], false);
     cabeceraTabla(ws, r, ["No.", "Alumno", ...acts.map(a => `${a.title}${Number(a.peso) !== 1 ? ` (x${Number(a.peso)})` : ""}`), "Prom. act.", "Asistencia", "Calificación"]);
     ws.getRow(r).height = 54;
     ws.views = [{ state:"frozen", xSplit:2, ySplit:r, showGridLines:false }];
     const M = {}; ctx.marks.forEach(m => { (M[m.activity_id] ||= {})[m.student_id] = m; });
     ctx.students.forEach((s, k) => {
       r++;
-      const e = ev.porAlumno[s.id].parciales[i];
+      const e = ev.porAlumno[s.id].porRA[i];
       celda(ws.getCell(r, 1), k + 1, { align:"center" });
       celda(ws.getCell(r, 2), s.name);
       acts.forEach((a, j) => {

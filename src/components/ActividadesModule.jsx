@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { sb, fetchAll } from "../lib/supabase";
 import { C, today, fmtDate } from "../lib/constants";
 import { Empty } from "./Shared";
+import { evalConfig, etiquetaRA, nuevoIdRA, guardarConfig } from "../lib/evaluacion";
 
 // Control de actividades / productos de una clase: qué alumnos entregaron.
 const ST = {
@@ -10,11 +11,14 @@ const ST = {
   missing:   { label:"No entregó", short:"✗", icon:"❌", color:C.danger },
 };
 
-function ActividadForm({ initial, defParcial, onSave, onClose }) {
+function ActividadForm({ initial, ras, defRA, onSave, onClose }) {
   const [title, setTitle] = useState(initial?.title || "");
   const [due, setDue]     = useState(initial?.due_date || today());
   const [desc, setDesc]   = useState(initial?.description || "");
-  const [parcial, setParcial] = useState(initial?.parcial || defParcial || 1);
+  const inicialRA = initial?.ra && ras.some(r => r.id === initial.ra) ? initial.ra : (defRA || ras[0]?.id || "__new");
+  const [ra, setRa]       = useState(inicialRA);
+  const [raClave, setRaClave] = useState("");
+  const [raNombre, setRaNombre] = useState("");
   const [peso, setPeso]   = useState(String(initial?.peso ?? 1));
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState("");
@@ -22,8 +26,14 @@ function ActividadForm({ initial, defParcial, onSave, onClose }) {
     if (!title.trim()) { setError("Escribe el nombre de la actividad"); return; }
     const w = Number(peso);
     if (!(w > 0 && w <= 100)) { setError("El valor debe ser un número mayor que 0 (por ejemplo 1, 2 o 3)"); return; }
+    let nuevoRA = null;
+    if (ra === "__new") {
+      if (!raClave.trim()) { setError("Escribe la clave del resultado de aprendizaje (por ejemplo 1.1)"); return; }
+      if (ras.some(r => r.clave === raClave.trim())) { setError(`El RA ${raClave.trim()} ya existe: elígelo de la lista`); return; }
+      nuevoRA = { id: nuevoIdRA(), clave: raClave.trim(), nombre: raNombre.trim() };
+    }
     setBusy(true); setError("");
-    const err = await onSave({ title: title.trim(), due_date: due || null, description: desc.trim() || null, parcial: Number(parcial), peso: w });
+    const err = await onSave({ title: title.trim(), due_date: due || null, description: desc.trim() || null, ra: nuevoRA ? nuevoRA.id : ra, peso: w }, nuevoRA);
     setBusy(false);
     if (err) setError(err);
   }
@@ -40,19 +50,24 @@ function ActividadForm({ initial, defParcial, onSave, onClose }) {
             <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Fecha de entrega</div>
             <input className="inp" type="date" value={due} onChange={e=>setDue(e.target.value)}/>
           </div>
-          <div style={{display:"flex",gap:10}}>
-            <div style={{flex:1}}>
-              <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Parcial</div>
-              <select className="inp" value={parcial} onChange={e=>setParcial(e.target.value)}>
-                {[1,2,3].map(n => <option key={n} value={n}>Parcial {n}</option>)}
-              </select>
-            </div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Valor (peso)</div>
-              <input className="inp" type="number" min="0.5" step="0.5" inputMode="decimal" value={peso} onChange={e=>setPeso(e.target.value)}/>
-            </div>
+          <div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Resultado de aprendizaje</div>
+            <select className="inp" value={ra} onChange={e=>setRa(e.target.value)}>
+              {ras.map(r => <option key={r.id} value={r.id}>{etiquetaRA(r)}{r.nombre ? ` · ${r.nombre.length > 50 ? r.nombre.slice(0, 50) + "…" : r.nombre}` : ""}</option>)}
+              <option value="__new">➕ Nuevo resultado de aprendizaje…</option>
+            </select>
           </div>
-          <div style={{fontSize:11,color:C.muted,marginTop:-6}}>El valor indica cuánto pesa en el promedio del parcial: un examen con valor 3 cuenta como tres actividades de valor 1.</div>
+          {ra === "__new" && (
+            <div style={{display:"flex",gap:8,marginTop:-4}}>
+              <input className="inp" placeholder="Clave (1.1)" value={raClave} onChange={e=>setRaClave(e.target.value)} style={{width:110,flexShrink:0,textAlign:"center"}}/>
+              <input className="inp" placeholder="Descripción del RA (opcional)" value={raNombre} onChange={e=>setRaNombre(e.target.value)} style={{flex:1,minWidth:0}}/>
+            </div>
+          )}
+          <div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Valor (peso)</div>
+            <input className="inp" type="number" min="0.5" step="0.5" inputMode="decimal" value={peso} onChange={e=>setPeso(e.target.value)}/>
+            <div style={{fontSize:11,color:C.muted,marginTop:4}}>Cuánto pesa en el promedio de su RA: una actividad con valor 3 cuenta como tres de valor 1.</div>
+          </div>
           <div>
             <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Descripción (opcional)</div>
             <textarea className="inp" rows={3} placeholder="Instrucciones, criterios, etc." value={desc} onChange={e=>setDesc(e.target.value)} style={{resize:"vertical"}}/>
@@ -84,7 +99,7 @@ function ScoreInput({ value, disabled, onCommit }) {
   );
 }
 
-export default function ActividadesModule({ session, students, isViewer, showToast, onDataChange, onExport }) {
+export default function ActividadesModule({ session, students, isViewer, showToast, onDataChange, onExport, onSessionChange }) {
   const [acts, setActs]       = useState([]);
   const [marks, setMarks]     = useState({});   // activity_id -> { student_id: status }
   const [loading, setLoading] = useState(true);
@@ -92,7 +107,9 @@ export default function ActividadesModule({ session, students, isViewer, showToa
   const [form, setForm]       = useState(null); // null | { initial }
   const [filter, setFilter]   = useState("all");
   const [scores, setScores]   = useState({});   // activity_id -> { student_id: calificación }
-  const [parcialF, setParcialF] = useState(0);  // 0 = todos
+  const [raF, setRaF] = useState("todos");      // filtro por resultado de aprendizaje
+  const ras = evalConfig(session).ras;
+  const raDe = (a) => ras.find(r => r.id === a.ra) || null;
 
   useEffect(() => {
     let alive = true;
@@ -119,7 +136,11 @@ export default function ActividadesModule({ session, students, isViewer, showToa
     return c;
   };
 
-  async function saveActivity(fields) {
+  async function saveActivity(fields, nuevoRA) {
+    if (nuevoRA) {
+      try { onSessionChange?.(await guardarConfig(session.id, { ...evalConfig(session), ras: [...ras, nuevoRA] })); }
+      catch (e) { return "No se pudo guardar el resultado de aprendizaje: " + e.message; }
+    }
     if (form.initial) {
       const { data, error } = await sb.from("activities").update(fields).eq("id", form.initial.id).select().single();
       if (error) return error.message;
@@ -187,7 +208,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
     return true;
   }
 
-  // El Excel de actividades es el mismo de calificaciones: una hoja por parcial con
+  // El Excel de actividades es el mismo de calificaciones: una hoja por RA con
   // cada actividad, su calificación y colores (entregó / tarde / no entregó).
   function exportXlsx() { onExport?.(); }
 
@@ -203,7 +224,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
     const total = students.length || 1;
     return (
       <div style={{animation:"fadeUp .3s ease both"}}>
-        {form && <ActividadForm initial={form.initial} defParcial={parcialF || undefined} onSave={saveActivity} onClose={() => setForm(null)}/>}
+        {form && <ActividadForm initial={form.initial} ras={ras} defRA={raF !== "todos" && raF !== "sin" ? raF : undefined} onSave={saveActivity} onClose={() => setForm(null)}/>}
         <button className="btn" onClick={() => { setOpenId(null); setFilter("all"); }}
           style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit",marginBottom:12}}>
           ← Todas las actividades
@@ -212,7 +233,8 @@ export default function ActividadesModule({ session, students, isViewer, showToa
           <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:800,fontSize:18,overflowWrap:"anywhere"}}>{open.title}</div>
-              <div style={{color:C.muted,fontSize:12,marginTop:3}}>📅 Entrega: {open.due_date ? fmtDate(open.due_date) : "sin fecha"} · Parcial {open.parcial || 1} · Valor {Number(open.peso ?? 1)}</div>
+              <div style={{color:C.muted,fontSize:12,marginTop:3}}>📅 Entrega: {open.due_date ? fmtDate(open.due_date) : "sin fecha"} · {etiquetaRA(raDe(open))} · Valor {Number(open.peso ?? 1)}</div>
+              {raDe(open)?.nombre && <div style={{color:C.gold,fontSize:12,marginTop:2}}>{raDe(open).nombre}</div>}
               {open.description && <div style={{fontSize:13,marginTop:8,color:C.text,whiteSpace:"pre-wrap"}}>{open.description}</div>}
             </div>
             {!isViewer && <button className="btn" title="Editar" onClick={() => setForm({ initial: open })} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 9px",flexShrink:0}}>✏️</button>}
@@ -285,7 +307,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
   // ── Lista de actividades ──
   return (
     <div style={{animation:"fadeUp .3s ease both"}}>
-      {form && <ActividadForm initial={form.initial} defParcial={parcialF || undefined} onSave={saveActivity} onClose={() => setForm(null)}/>}
+      {form && <ActividadForm initial={form.initial} ras={ras} defRA={raF !== "todos" && raF !== "sin" ? raF : undefined} onSave={saveActivity} onClose={() => setForm(null)}/>}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
         <div>
           <div style={{fontWeight:800,fontSize:18}}>Actividades</div>
@@ -299,17 +321,18 @@ export default function ActividadesModule({ session, students, isViewer, showToa
 
       {acts.length > 0 && (
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
-          {[0,1,2,3].map(n => (
-            <button key={n} className="btn chip" onClick={() => setParcialF(n)}
-              style={{background:parcialF===n?`${C.accent}22`:"transparent",color:parcialF===n?C.accent:C.muted,borderColor:parcialF===n?C.accent:C.border}}>
-              {n === 0 ? "Todos" : `Parcial ${n}`} <span style={{opacity:.7}}>({n === 0 ? acts.length : acts.filter(a => (a.parcial || 1) === n).length})</span>
+          {[{ id:"todos", label:"Todos", n:acts.length }, ...ras.map(r => ({ id:r.id, label:etiquetaRA(r), title:r.nombre, n:acts.filter(a => a.ra === r.id).length })),
+            ...(acts.some(a => !raDe(a)) ? [{ id:"sin", label:"Sin RA", n:acts.filter(a => !raDe(a)).length }] : [])].map(t => (
+            <button key={t.id} className="btn chip" onClick={() => setRaF(t.id)} title={t.title || ""}
+              style={{background:raF===t.id?`${C.accent}22`:"transparent",color:raF===t.id?C.accent:C.muted,borderColor:raF===t.id?C.accent:C.border}}>
+              {t.label} <span style={{opacity:.7}}>({t.n})</span>
             </button>
           ))}
         </div>
       )}
       {acts.length === 0 ? <Empty icon="📝" msg="Aún no hay actividades. Registra la primera para llevar el control de entregas."/> : (
         <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:10}}>
-          {acts.filter(a => !parcialF || (a.parcial || 1) === parcialF).map(a => {
+          {acts.filter(a => raF === "todos" || (raF === "sin" ? !raDe(a) : a.ra === raF)).map(a => {
             const c = countsOf(a.id);
             const total = students.length || 1;
             const vencida = a.due_date && a.due_date < today();
@@ -319,7 +342,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
                 <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:700,fontSize:15,overflowWrap:"anywhere"}}>{a.title}</div>
-                    <div style={{fontSize:12,color:vencida?C.warning:C.muted,marginTop:2}}>📅 {a.due_date ? fmtDate(a.due_date) : "Sin fecha"}{vencida && c.pending ? " · vencida" : ""} · <span style={{color:C.gold}}>P{a.parcial || 1} · valor {Number(a.peso ?? 1)}</span></div>
+                    <div style={{fontSize:12,color:vencida?C.warning:C.muted,marginTop:2}}>📅 {a.due_date ? fmtDate(a.due_date) : "Sin fecha"}{vencida && c.pending ? " · vencida" : ""} · <span style={{color:raDe(a)?C.gold:C.warning}}>{etiquetaRA(raDe(a))} · valor {Number(a.peso ?? 1)}</span></div>
                   </div>
                   {!isViewer && (
                     <div style={{display:"flex",gap:6,flexShrink:0}}>

@@ -3,7 +3,6 @@ import { GlobalStyles, BrandMark } from "./Shared";
 import { BRAND } from "../lib/constants";
 import PixelBat from "./PixelBat";
 import PixelGraveyard from "./PixelGraveyard";
-import AvisoPrivacidad from "./AvisoPrivacidad";
 
 const T = {
   bg:"#07201a", surface:"#0c2d24", card:"#0f3529", border:"#1a5040",
@@ -37,7 +36,6 @@ function Screen({ children }) {
 }
 
 export default function AuthScreen({ onLogin, onRegister }) {
-  const [showAviso, setShowAviso] = useState(false);
   const [mode, setMode]     = useState("login");
   const [username, setUser] = useState("");
   const [password, setPass] = useState("");
@@ -136,10 +134,7 @@ export default function AuthScreen({ onLogin, onRegister }) {
           </div>
         </>
       )}
-      <div style={{marginTop:28,textAlign:"center",fontSize:11,color:T.muted}}>
-        AppProf v4 · <button type="button" onClick={()=>setShowAviso(true)} style={{background:"none",border:"none",color:T.light,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0,fontFamily:"inherit"}}>Aviso de privacidad</button>
-      </div>
-      {showAviso && <AvisoPrivacidad onClose={()=>setShowAviso(false)}/>}
+      <div style={{marginTop:28,textAlign:"center",fontSize:11,color:T.muted}}>AppProf v4</div>
     </Screen>
   );
 }

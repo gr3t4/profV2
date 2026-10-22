@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { sb } from "../lib/supabase";
 import { C, STATUS, fmtDate } from "../lib/constants";
 import { GlobalStyles, Empty, BrandMark } from "./Shared";
-import AvisoPrivacidad from "./AvisoPrivacidad";
 
 function pctColor(p) {
   if (p === null) return C.muted;
@@ -12,7 +11,6 @@ function pctColor(p) {
 }
 
 export default function ParentView({ token }) {
-  const [showAviso, setShowAviso] = useState(false);
   const [state, setState] = useState({ loading: true, error: false, studentName: "", sessionName: "", rows: [] });
 
   useEffect(() => {
@@ -105,10 +103,7 @@ export default function ParentView({ token }) {
           </>
         )}
 
-        <div style={{marginTop:28,textAlign:"center",fontSize:11,color:C.muted}}>
-          AppProf v4 · Solo lectura · <button type="button" onClick={()=>setShowAviso(true)} style={{background:"none",border:"none",color:C.accent,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0,fontFamily:"inherit"}}>Aviso de privacidad</button>
-        </div>
-        {showAviso && <AvisoPrivacidad onClose={()=>setShowAviso(false)}/>}
+        <div style={{marginTop:28,textAlign:"center",fontSize:11,color:C.muted}}>AppProf v4 · Solo lectura</div>
       </div>
     </div>
   );
