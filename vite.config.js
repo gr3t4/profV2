@@ -1,10 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { readFileSync } from 'node:fs'
 
 // Identificador de esta compilación. La app lo compara con /version.json para
 // detectar que hay una versión nueva publicada y actualizarse sola.
 const BUILD_ID = new Date().toISOString()
+
+// Ícono de la app según la temporada (se decide al compilar). La fecha límite es la
+// misma de src/lib/season.js; después de esa fecha hay que volver a publicar para
+// que regrese el ícono normal.
+const HALLOWEEN_END = readFileSync(new URL('./src/lib/season.js', import.meta.url), 'utf8').match(/HALLOWEEN_END = "([\d-]+)"/)[1]
+const HOY_MX = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())
+const T = HOY_MX <= HALLOWEEN_END ? '-halloween' : ''
+const ICON = { i192: `icon${T}-192.png`, i512: `icon${T}-512.png`, mask: `icon${T}-maskable-512.png`, apple: `apple-touch-icon${T}.png` }
 
 export default defineConfig({
   define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
@@ -16,9 +25,15 @@ export default defineConfig({
         this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD_ID }) })
       },
     },
+    {
+      name: 'iconos-de-temporada',
+      transformIndexHtml(html) {
+        return html.replaceAll('%ICON_APPLE%', '/' + ICON.apple).replaceAll('%ICON_192%', '/' + ICON.i192).replaceAll('%ICON_512%', '/' + ICON.i512)
+      },
+    },
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+      includeAssets: [ICON.apple, ICON.i192, ICON.i512, ICON.mask],
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
@@ -55,28 +70,13 @@ export default defineConfig({
         lang: 'es',
         categories: ['education', 'productivity'],
         icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
+          { src: ICON.i192, sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: ICON.i512, sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: ICON.mask, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
         screenshots: [
           {
-            src: 'pwa-512x512.png',
+            src: ICON.i512,
             sizes: '512x512',
             type: 'image/png',
             form_factor: 'narrow',
