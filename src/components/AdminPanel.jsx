@@ -100,12 +100,13 @@ export default function AdminPanel({ user, onLogout }) {
 
   const totalUsers   = users.filter(u=>u.role!=="admin").length;
   const activeUsers  = users.filter(u=>u.role!=="admin"&&u.active!==false).length;
+  const pendientes   = users.filter(u=>u.role!=="admin"&&u.active===false&&!u.created_by_admin).length;
   const totalSess    = allSessions.length;
   // Alumnos únicos: la lista es del grupo, compartida por todas sus materias
   const totalStu     = Object.values(Object.fromEntries(allSessions.map(s=>[s.grupo_id||s.id, s.studentCount||0]))).reduce((a,b)=>a+b,0);
   const totalLate    = allSessions.reduce((a,s)=>a+(s.lateCount||0),0);
   const totalExcused = allSessions.reduce((a,s)=>a+(s.excusedCount||0),0);
-  const TABS = [{id:"overview",label:"📊 Resumen"},{id:"users",label:"👥 Usuarios"},{id:"sessions",label:"📚 Sesiones"},{id:"settings",label:"⚙️ Ajustes"}];
+  const TABS = [{id:"overview",label:"📊 Resumen"},{id:"users",label:`👥 Usuarios${pendientes?` ⏳${pendientes}`:""}`},{id:"sessions",label:"📚 Sesiones"},{id:"settings",label:"⚙️ Ajustes"}];
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Source Sans 3',sans-serif",color:C.text,position:"relative"}}>
@@ -232,6 +233,7 @@ export default function AdminPanel({ user, onLogout }) {
                 <button className="btn" onClick={createUser} style={{background:`linear-gradient(135deg,${C.success},#059669)`,color:"#fff",borderRadius:10,padding:"10px 18px",fontSize:13,fontWeight:600,fontFamily:"inherit",whiteSpace:"nowrap"}}>Crear</button>
               </div>
             </div>
+            {pendientes>0&&<div role="status" style={{background:`${C.warning}14`,border:`1px solid ${C.warning}55`,borderRadius:12,padding:"10px 14px",marginBottom:12,fontSize:13}}>⏳ <b>{pendientes}</b> cuenta{pendientes===1?"":"s"} nueva{pendientes===1?"":"s"} esperando tu aprobación. Revisa que sea personal de la escuela antes de aprobar.</div>}
             {users.filter(u=>u.role!=="admin").length===0?<Empty icon="👥" msg="Sin usuarios"/>:(
               <div style={{display:"grid",gap:10}}>
                 {users.filter(u=>u.role!=="admin").map((u,i)=>(
@@ -242,7 +244,10 @@ export default function AdminPanel({ user, onLogout }) {
                       <div style={{color:C.muted,fontSize:12,marginTop:2}}>@{u.username} · {fmtDT(u.created_at)}{u.created_by_admin&&<span style={{color:C.gold,marginLeft:6,fontSize:11}}>★</span>}</div>
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                      <RoleBadge role={u.role}/><StatusBadge active={u.active!==false}/>
+                      <RoleBadge role={u.role}/>
+                      {u.active===false&&!u.created_by_admin
+                        ? <span style={{background:`${C.warning}18`,color:C.warning,border:`1px solid ${C.warning}44`,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>⏳ Pendiente</span>
+                        : <StatusBadge active={u.active!==false}/>}
                       {u.role==="viewer"&&(
                         <select className="inp" value={u.turno||""} onChange={e=>setViewerTurno(u.id,e.target.value||null)} title="Turno de Prefectura"
                           style={{width:"auto",padding:"5px 8px",fontSize:12,cursor:"pointer"}}>
@@ -253,7 +258,7 @@ export default function AdminPanel({ user, onLogout }) {
                       )}
                       <button className="btn" onClick={()=>viewUserSessions(u.id,u.name)} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>📚</button>
                       <button className="btn" onClick={()=>{setEditPassTarget({id:u.id,name:u.name,username:u.username});setEditPassVal({new1:"",new2:""});setEditPassErr("");}} style={{background:`${C.purple}22`,color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}} title="Cambiar contraseña">🔑</button>
-                      <button className="btn" onClick={()=>toggleUserActive(u.id,u.active!==false)} style={{background:u.active===false?`${C.success}22`:`${C.warning}22`,color:u.active===false?C.success:C.warning,border:`1px solid ${u.active===false?C.success:C.warning}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>{u.active===false?"Activar":"Desactivar"}</button>
+                      <button className="btn" onClick={()=>toggleUserActive(u.id,u.active!==false)} style={{background:u.active===false?`${C.success}22`:`${C.warning}22`,color:u.active===false?C.success:C.warning,border:`1px solid ${u.active===false?C.success:C.warning}44`,borderRadius:8,padding:"6px 12px",fontSize:12,fontFamily:"inherit"}}>{u.active===false?(u.created_by_admin?"Activar":"✅ Aprobar"):"Desactivar"}</button>
                       <button className="btn" onClick={()=>deleteUser(u.id,u.username)} style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:`1px solid rgba(239,68,68,0.2)`,borderRadius:8,padding:"6px 10px",fontSize:13}}>🗑️</button>
                     </div>
                   </div>

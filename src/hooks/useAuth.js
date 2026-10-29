@@ -114,13 +114,20 @@ export function useAuth() {
   async function login(username, password) {
     const email = usernameToEmail(username);
     const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) return { ok: false, message: "Usuario o contraseña incorrectos" };
+    if (error) {
+      // Cuenta nueva sin aprobar o desactivada: Supabase la tiene bloqueada
+      if (error.code === "user_banned" || /banned/i.test(error.message || ""))
+        return { ok: false, message: "Tu cuenta está pendiente de aprobación o desactivada. Pide al administrador que la active." };
+      return { ok: false, message: "Usuario o contraseña incorrectos" };
+    }
     return { ok: true };
   }
 
   async function register(username, password, name) {
     const res = await callAdminUsers("register", { username, password, name });
     if (!res.ok) return { ok: false, message: res.error };
+    // Por seguridad, las cuentas nuevas quedan pendientes hasta que el admin las active
+    if (res.data?.pending) return { ok: false, pending: true, message: "✅ Cuenta creada. Un administrador debe activarla antes de que puedas entrar." };
     return login(username, password);
   }
 

@@ -42,10 +42,11 @@ export default function AuthScreen({ onLogin, onRegister }) {
   const [name, setName]     = useState("");
   const [error, setError]   = useState("");
   const [busy, setBusy]     = useState(false);
+  const [notice, setNotice] = useState("");   // mensaje de éxito (cuenta pendiente)
   const [forgot, setForgot] = useState(false);
 
   async function submit() {
-    setError(""); setBusy(true);
+    setError(""); setNotice(""); setBusy(true);
     if (!username.trim()||!password.trim()) { setError("Completa todos los campos"); setBusy(false); return; }
     let res;
     if (mode==="register") {
@@ -54,7 +55,8 @@ export default function AuthScreen({ onLogin, onRegister }) {
     } else {
       res = await onLogin(username.trim(), password);
     }
-    if (!res.ok) setError(res.message || "Ocurrió un error, intenta de nuevo");
+    if (res.pending) { setNotice(res.message); setMode("login"); setPass(""); }
+    else if (!res.ok) setError(res.message || "Ocurrió un error, intenta de nuevo");
     setBusy(false);
   }
 
@@ -123,7 +125,9 @@ export default function AuthScreen({ onLogin, onRegister }) {
                 </button>
               )}
             </div>
-            {error && <div style={{background:`${T.danger}18`,border:`1px solid ${T.danger}44`,borderRadius:8,
+            {notice && <div role="status" style={{background:`${T.light}18`,border:`1px solid ${T.light}55`,borderRadius:8,
+              padding:"10px 14px",color:T.text,fontSize:13,textAlign:"center"}}>{notice}</div>}
+            {error && <div role="alert" style={{background:`${T.danger}18`,border:`1px solid ${T.danger}44`,borderRadius:8,
               padding:"10px 14px",color:T.danger,fontSize:13,textAlign:"center"}}>{error}</div>}
             <button className="btn" onClick={submit} disabled={busy} aria-busy={busy} style={{
               background:T.grad,color:"#fff",borderRadius:10,padding:"14px 0",fontSize:15,
