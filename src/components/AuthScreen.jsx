@@ -3,6 +3,7 @@ import { GlobalStyles, BrandMark, BusyLabel } from "./Shared";
 import { BRAND } from "../lib/constants";
 import PixelBat from "./PixelBat";
 import PixelGraveyard from "./PixelGraveyard";
+import { halloweenActive } from "../lib/season";
 
 const T = {
   bg:"#07201a", surface:"#0c2d24", card:"#0f3529", border:"#1a5040",
@@ -67,7 +68,7 @@ export default function AuthScreen({ onLogin, onRegister }) {
   return (
     <Screen>
       <div style={{textAlign:"center",marginBottom:28}}>
-        <BrandMark size={76} style={{margin:"0 auto 14px"}}/>
+        <BrandMark size={76} style={{margin:`0 auto ${halloweenActive() ? 30 : 14}px`}}/>
         <h1 style={{fontFamily:"'Sora',sans-serif",fontSize:"clamp(22px,6vw,26px)",color:T.text,fontWeight:800,margin:0}}>AppProf</h1>
         <div style={{width:72,height:3,background:BRAND.stripe,borderRadius:2,margin:"10px auto 0"}}/>
       </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { C } from "../lib/constants";
 import { Z } from "../lib/design";
+import { halloweenActive } from "../lib/season";
 
 export function Empty({ icon, msg }) {
   return (
@@ -128,13 +129,55 @@ export function AddStudentInline({ onAdd }) {
 
 // Figura animada de la app (en lugar de un logo): tres órbitas en guinda, verde y
 // dorado girando alrededor de una palomita que se dibuja una y otra vez.
-export function BrandMark({ size = 28, style }) {
+// En temporada de Halloween / Día de Muertos le escurre sangre estilo 8 bits.
+const BLOOD = { dark:"#6e0b14", main:"#c8102e", light:"#ff5a5a" };
+const RING_R = 22.5; // borde exterior de la órbita guinda
+const ringY = (x) => 24 + Math.sqrt(Math.max(0, RING_R * RING_R - (x - 24) * (x - 24)));
+const snap = (v) => Math.floor(v / 2) * 2;
+// Gotas que cuelgan: posición x, largo (px de la figura), retraso de la animación
+const DRIPS = [
+  { x:12, len:6,  d:0.0 }, { x:18, len:12, d:0.9 }, { x:24, len:16, d:1.7 },
+  { x:30, len:9,  d:0.4 }, { x:36, len:5,  d:1.3 },
+];
+
+function BloodPixels() {
+  const band = [];
+  for (let x = 8; x <= 38; x += 2) {
+    const y = snap(ringY(x + 1)) - 2;
+    band.push(<rect key={"b" + x} x={x} y={y} width="2" height="2" fill={BLOOD.dark}/>);
+    if (x >= 14 && x <= 32) band.push(<rect key={"c" + x} x={x} y={y - 2} width="2" height="2" fill={BLOOD.main}/>);
+  }
   return (
-    <svg className="bm" width={size} height={size} viewBox="0 0 48 48" role="img" aria-label="AppProf" style={{flexShrink:0,display:"block",...style}}>
+    <g shapeRendering="crispEdges" aria-hidden="true">
+      {band}
+      {DRIPS.map(({ x, len, d }) => {
+        const y0 = snap(ringY(x + 1));
+        const cells = [];
+        for (let k = 0; k < len; k += 2) cells.push(<rect key={k} x={x} y={y0 + k} width="2" height="2" fill={k === 0 ? BLOOD.dark : BLOOD.main}/>);
+        return (
+          <g key={x}>
+            <g className="bm-drip" style={{ animationDelay: `${d}s` }}>
+              {cells}
+              <rect x={x} y={y0 + 2} width="1" height="2" fill={BLOOD.light}/>
+              <rect x={x - 1} y={y0 + len - 2} width="4" height="3" fill={BLOOD.main}/>
+            </g>
+            <rect className="bm-drop" x={x} y={y0 + len + 1} width="2" height="2" fill={BLOOD.main} style={{ animationDelay: `${d}s` }}/>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+export function BrandMark({ size = 28, style }) {
+  const sangre = halloweenActive();
+  return (
+    <svg className="bm" width={size} height={size} viewBox="0 0 48 48" role="img" aria-label="AppProf" style={{flexShrink:0,display:"block",overflow:"visible",...style}}>
       <circle cx="24" cy="24" r="21" fill="none" stroke="#9D2449" strokeWidth="3" strokeLinecap="round" strokeDasharray="70 62" className="bm-o1"/>
       <circle cx="24" cy="24" r="15.5" fill="none" stroke="#00a87e" strokeWidth="3" strokeLinecap="round" strokeDasharray="44 53" className="bm-o2"/>
       <circle cx="24" cy="24" r="10" fill="none" stroke="#B38E5D" strokeWidth="2.6" strokeLinecap="round" strokeDasharray="22 41" className="bm-o3"/>
       <path d="M18.5 24.5 L22.5 28.5 L30 20" fill="none" stroke="#e8f5f1" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" pathLength="1" className="bm-check"/>
+      {sangre && <BloodPixels/>}
     </svg>
   );
 }
@@ -151,7 +194,12 @@ export function GlobalStyles() {
       .bm-check{stroke-dasharray:1;stroke-dashoffset:1;animation:bmDraw 3.2s ease-in-out infinite;}
       @keyframes bmSpin{to{transform:rotate(360deg);}}
       @keyframes bmDraw{0%,8%{stroke-dashoffset:1;}35%,80%{stroke-dashoffset:0;}100%{stroke-dashoffset:-1;}}
-      @media (prefers-reduced-motion: reduce){.bm *{animation:none!important;stroke-dashoffset:0!important;}}
+      /* Sangre 8 bits (temporada): la gota crece por pasos, gotea y vuelve a empezar */
+      .bm-drip{transform-box:fill-box;transform-origin:50% 0;animation:bmDrip 3.6s steps(6,end) infinite;}
+      .bm-drop{opacity:0;animation:bmDrop 3.6s steps(8,end) infinite;}
+      @keyframes bmDrip{0%{transform:scaleY(.35);}55%,100%{transform:scaleY(1);}}
+      @keyframes bmDrop{0%,55%{opacity:0;transform:translateY(0);}60%{opacity:1;transform:translateY(0);}95%{opacity:1;transform:translateY(12px);}100%{opacity:0;transform:translateY(14px);}}
+      @media (prefers-reduced-motion: reduce){.bm *{animation:none!important;stroke-dashoffset:0!important;}.bm-drop{opacity:0!important;}}
       html{
         -webkit-text-size-adjust:100%;
         height:100%;
