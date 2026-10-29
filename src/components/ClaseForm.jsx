@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BusyLabel } from "./Shared";
 import { sb } from "../lib/supabase";
 import { C, TURNOS, today } from "../lib/constants";
 import { DIAS, resumenHorario } from "../lib/horario";
@@ -199,9 +200,9 @@ export default function ClaseForm({ user, grupos, initial, onSaved, onClose }) {
           {error && <div style={{color:C.danger,fontSize:12}}>{error}</div>}
 
           <div style={{display:"flex",gap:10}}>
-            <button className="btn" onClick={save} disabled={busy}
+            <button className="btn" onClick={save} disabled={busy} aria-busy={busy}
               style={{flex:1,background:`linear-gradient(135deg,${C.accent},${C.teal})`,color:"#fff",borderRadius:10,padding:"12px 0",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>
-              {busy ? "Guardando…" : editing ? "💾 Guardar cambios" : "✅ Crear clase"}
+              <BusyLabel busy={busy}>{editing ? "💾 Guardar cambios" : "✅ Crear clase"}</BusyLabel>
             </button>
             <button className="btn" onClick={onClose}
               style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 18px",fontSize:14,fontFamily:"inherit"}}>

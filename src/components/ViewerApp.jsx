@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { sb, fetchAll } from "../lib/supabase";
 import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
-import { GlobalStyles, Glow, Empty, BrandMark } from "./Shared";
+import { GlobalStyles, Glow, Empty, BrandMark, SkeletonList } from "./Shared";
 import ViewerReports from "./ViewerReports";
 import { tieneClase, inicioDelDia, bloquesDelDia } from "../lib/horario";
 
@@ -496,7 +496,7 @@ export default function ViewerApp({ user, onLogout }) {
         )}
 
         {loading ? (
-          <div style={{textAlign:"center",padding:"60px 0",color:C.muted,fontSize:14}}>Cargando...</div>
+          <SkeletonList rows={5} label="Cargando grupos…"/>
         ) : tab==="reportes" ? (
           <ViewerReports grupos={grupos}/>
         ) : tab==="ausencias" ? (

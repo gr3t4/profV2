@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BusyLabel } from "./Shared";
 import { sb } from "../lib/supabase";
 import { C } from "../lib/constants";
 import { cleanPhone, sendAttendanceLink } from "../lib/whatsapp";
@@ -43,9 +44,9 @@ export default function TutorModal({ student, sessionName, onSave, onClose }) {
           </div>
           {error && <div style={{color:C.danger,fontSize:12}}>{error}</div>}
           <div style={{display:"flex",gap:10,marginTop:4}}>
-            <button className="btn" onClick={save} disabled={busy}
+            <button className="btn" onClick={save} disabled={busy} aria-busy={busy}
               style={{flex:1,background:"linear-gradient(135deg,#25d366,#128c7e)",color:"#fff",borderRadius:10,padding:"12px 0",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>
-              {busy ? "Guardando..." : "💾 Guardar"}
+              <BusyLabel busy={busy}>💾 Guardar</BusyLabel>
             </button>
             <button className="btn" onClick={onClose}
               style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 18px",fontSize:14,fontFamily:"inherit"}}>

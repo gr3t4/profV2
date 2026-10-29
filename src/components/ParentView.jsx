@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { sb } from "../lib/supabase";
 import { C, STATUS, fmtDate } from "../lib/constants";
-import { GlobalStyles, Empty, BrandMark } from "./Shared";
+import { GlobalStyles, Empty, BrandMark, SkeletonList } from "./Shared";
 
 function pctColor(p) {
   if (p === null) return C.muted;
@@ -48,7 +48,7 @@ export default function ParentView({ token }) {
         </div>
 
         {state.loading && (
-          <div style={{textAlign:"center",padding:"60px 0",color:C.muted,fontSize:14}}>Cargando...</div>
+          <SkeletonList rows={3} avatar={false} label="Cargando asistencia…"/>
         )}
 
         {!state.loading && state.error && (

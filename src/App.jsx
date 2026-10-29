@@ -8,13 +8,10 @@ const TeacherApp = lazy(() => import("./components/TeacherApp"));
 const ViewerApp  = lazy(() => import("./components/ViewerApp"));
 const ParentView = lazy(() => import("./components/ParentView"));
 import InstallBanner from "./components/InstallBanner";
+import { GlobalStyles, LoadingScreen } from "./components/Shared";
 
 function Loading() {
-  return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <span style={{color:C.muted,fontFamily:"Inter,sans-serif",fontSize:14}}>Cargando...</span>
-    </div>
-  );
+  return <><GlobalStyles/><LoadingScreen/></>;
 }
 
 export default function App() {

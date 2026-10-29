@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BusyLabel } from "./Shared";
 import { sb } from "../lib/supabase";
 import { C } from "../lib/constants";
 import { usernameToEmail } from "../lib/username";
@@ -67,9 +68,9 @@ export default function MiCuentaModal({ user, onNameChanged, onClose }) {
             <div style={{fontWeight:700,fontSize:14,marginBottom:10}}>Nombre</div>
             <div style={lbl}>Así aparece como «Docente» en los mensajes y reportes</div>
             <input className="inp" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&saveName()} placeholder="Ej. Mario Ulises Peña Flores"/>
-            <button className="btn" onClick={saveName} disabled={savingName}
+            <button className="btn" onClick={saveName} disabled={savingName} aria-busy={savingName}
               style={{marginTop:10,width:"100%",background:`linear-gradient(135deg,${C.accent},${C.teal})`,color:"#fff",borderRadius:10,padding:"11px 0",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>
-              {savingName ? "Guardando…" : "💾 Guardar nombre"}
+              <BusyLabel busy={savingName}>💾 Guardar nombre</BusyLabel>
             </button>
             {msg(nameMsg)}
           </div>
@@ -84,9 +85,9 @@ export default function MiCuentaModal({ user, onNameChanged, onClose }) {
               <div><div style={lbl}>Nueva contraseña (mínimo 6 caracteres)</div><input className="inp" type={show?"text":"password"} autoComplete="new-password" value={p1} onChange={e=>setP1(e.target.value)}/></div>
               <div><div style={lbl}>Repite la nueva contraseña</div><input className="inp" type={show?"text":"password"} autoComplete="new-password" value={p2} onChange={e=>setP2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&savePass()}/></div>
             </div>
-            <button className="btn" onClick={savePass} disabled={savingPass}
+            <button className="btn" onClick={savePass} disabled={savingPass} aria-busy={savingPass}
               style={{marginTop:10,width:"100%",background:`${C.gold}22`,color:C.gold,border:`1.5px solid ${C.gold}66`,borderRadius:10,padding:"11px 0",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>
-              {savingPass ? "Cambiando…" : "🔑 Cambiar contraseña"}
+              <BusyLabel busy={savingPass} busyText="Cambiando…">🔑 Cambiar contraseña</BusyLabel>
             </button>
             {msg(passMsg)}
           </div>

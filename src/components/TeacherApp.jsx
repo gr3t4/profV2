@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { sb, fetchAll } from "../lib/supabase";
 import { queueAttendance, queueHours, flush, pendingCount, pendingFor, pendingDates, onPendingChange } from "../lib/offlineQueue";
 import { C, BRAND, STATUS, TURNOS, today, fmtDate } from "../lib/constants";
-import { GlobalStyles, Glow, Toast, Empty, AddStudentInline, BrandMark } from "./Shared";
+import { GlobalStyles, Glow, Toast, Empty, AddStudentInline, BrandMark, Spinner, SkeletonList, TopProgress } from "./Shared";
 import JustifyModal from "./JustifyModal";
 import ExportModal from "./ExportModal";
 import ImportPreviewModal from "./ImportPreviewModal";
@@ -50,6 +50,10 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
   const [evalDatos, setEvalDatos]       = useState(null); // { sid, att, acts, marks }
   const [evalLoading, setEvalLoading]   = useState(false);
   const [gradesFilter, setGradesFilter] = useState("all");
+  const [sessionsLoaded, setSessionsLoaded] = useState(false); // primera carga de "Mis clases"
+  const [openingId, setOpeningId]       = useState(null);  // clase que se está abriendo
+  const [dateLoading, setDateLoading]   = useState(false); // cambiando de fecha
+  const [exporting, setExporting]       = useState(false); // generando un Excel
   const fileRef = useRef();
   const isViewer = user.role === "viewer";
 
@@ -60,6 +64,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
     ]);
     setSessions(data || []);
     setGrupos(gs || []);
+    setSessionsLoaded(true);
   }
 
   useEffect(() => { (async () => { await loadSessions(); })(); }, []);
@@ -133,6 +138,14 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
   }
 
   async function selectSession(s) {
+    if (openingId) return;               // ya se está abriendo una clase
+    setOpeningId(s.id);
+    try { await abrirClase(s); }
+    catch { showToast("❌ No se pudo abrir la clase. Revisa tu internet."); }
+    finally { setOpeningId(null); }
+  }
+
+  async function abrirClase(s) {
     setActiveSess(s);
     setEvalDatos(null); setGradesFilter("all");
     live.current.activeSession = s;
@@ -168,7 +181,9 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
   async function changeDate(d) {
     setSelectedDate(d);
     setClassHours(dateHours[d] || horasDelDia(activeSession.horario, d) || 1);
-    await loadAttendanceForDate(activeSession.id, d);
+    setDateLoading(true);
+    try { await loadAttendanceForDate(activeSession.id, d); }
+    finally { setDateLoading(false); }
     setFilter("all");
   }
 
@@ -294,7 +309,9 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
   }
 
   async function handleExport(type) {
+    if (exporting) return;
     showToast("⏳ Generando Excel…");
+    setExporting(true);
     try {
       const { data:allAtt } = await fetchAll(() => sb.from("attendance").select("student_id,date,status,reason").eq("session_id", activeSession.id).order("id"));
       const idx = {}; (allAtt||[]).forEach(r => { if (!idx[r.student_id]) idx[r.student_id] = {}; idx[r.student_id][r.date] = { status:r.status, reason:r.reason||"" }; });
@@ -309,6 +326,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
     } catch (e) {
       showToast("❌ No se pudo generar el Excel: " + (e?.message || e));
     }
+    finally { setExporting(false); }
   }
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 3000); }
@@ -346,13 +364,16 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
 
   async function exportCalificaciones() {
     if (!stats) { showToast("⏳ Aún se están cargando los datos"); return; }
+    if (exporting) return;
     showToast("⏳ Generando Excel…");
+    setExporting(true);
     try {
       const { exportarCalificaciones } = await import("../lib/exportAsistencia");
       await exportarCalificaciones({ docente:user.name, grupo:activeSession.grupo?.name || "", materia:activeSession.materia || activeSession.name,
         clase:nombreClase(activeSession), students, acts:evalDatos.acts, marks:evalDatos.marks, ev:stats, cfg:evalCfg });
       showToast("📥 Excel descargado");
     } catch (e) { showToast("❌ No se pudo generar el Excel: " + (e?.message || e)); }
+    finally { setExporting(false); }
   }
 
   function onSessionUpdated(s2) {
@@ -374,6 +395,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
       <Glow top="-15%" right="-5%" color="0,126,103" size="40vw"/>
       <Glow bottom="-10%" left="-5%" color="157,36,73" size="35vw"/>
       {toast && <Toast msg={toast}/>}
+      <TopProgress show={!sessionsLoaded || !!openingId || dateLoading || exporting || (evalLoading && !evalDatos)}/>
       {justifyTarget && <JustifyModal student={justifyTarget.student} date={justifyTarget.date} currentReason={attendance[justifyTarget.student.id]?.reason||""} onSave={saveJustification} onClose={()=>setJustifyTarget(null)}/>}
       {showExport && <ExportModal hasMultipleDates={allDates.length>0} onExport={handleExport} onClose={()=>setShowExport(false)}/>}
       {showCuenta && <MiCuentaModal user={user} onNameChanged={n=>{onProfileChange?.({ name:n }); showToast("✅ Nombre actualizado");}} onClose={()=>setShowCuenta(false)}/>}
@@ -425,7 +447,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
               <div><h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:22,fontWeight:700}}>Mis clases</h2><p style={{color:C.muted,fontSize:13,marginTop:4}}>{fmtDate(today())} · la clase que toca aparece primero</p></div>
               {!isViewer&&<button className="btn" onClick={()=>setClaseForm({initial:null})} style={{background:`linear-gradient(135deg,${C.accent},${C.purple})`,color:"#fff",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:600,fontFamily:"inherit"}}>+ Nueva clase</button>}
             </div>
-            {sessions.length===0?<Empty icon="🗂️" msg="No hay clases. ¡Crea la primera!"/>:(()=>{
+            {!sessionsLoaded ? <SkeletonList rows={3} label="Cargando tus clases…"/> : sessions.length===0?<Empty icon="🗂️" msg="No hay clases. ¡Crea la primera!"/>:(()=>{
               const d = today(), now = horaMX();
               const rank = (s) => enCurso(s.horario, d, now) ? 0 : tieneClase(s.horario, d) ? 1 : 2;
               const sorted = [...sessions].sort((a,b) => rank(a)-rank(b) || (inicioDelDia(a.horario,d)||"99").localeCompare(inicioDelDia(b.horario,d)||"99") || nombreClase(a).localeCompare(nombreClase(b)));
@@ -434,7 +456,9 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
                 {sorted.map((s,i)=>{
                   const r = rank(s), turno = s.grupo?.turno || s.turno, res = resumenHorario(s.horario);
                   return (
-                  <div key={s.id} className="row-hover" onClick={()=>selectSession(s)} style={{background:r===0?`${C.accent}18`:C.card,border:`1px solid ${r===0?C.accent:C.border}`,borderRadius:14,padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,animation:`slideIn .3s ease both`,animationDelay:`${i*.05}s`,minWidth:0}}>
+                  <div key={s.id} className={`row-hover${openingId && openingId!==s.id ? " is-loading" : ""}`} role="button" tabIndex={0} aria-busy={openingId===s.id}
+                    onClick={()=>selectSession(s)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();selectSession(s);}}}
+                    style={{background:r===0?`${C.accent}18`:C.card,border:`1px solid ${r===0?C.accent:C.border}`,borderRadius:14,padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,animation:`slideIn .3s ease both`,animationDelay:`${i*.05}s`,minWidth:0}}>
                     <div style={{width:48,height:48,borderRadius:12,background:`linear-gradient(135deg,${C.accent}33,${C.purple}22)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:s.grupo?.name?.length>4?11:15,color:C.text,flexShrink:0,textAlign:"center",lineHeight:1.1,padding:2}}>{s.grupo?.name || "📚"}</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:700,fontSize:15,overflowWrap:"anywhere"}}>{s.materia || s.name}
@@ -447,7 +471,9 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
                         {res ? <span>🕐 {res}</span> : !isViewer && <span style={{color:C.warning}}>⚠️ Sin horario</span>}
                       </div>
                     </div>
-                    {!isViewer&&(
+                    {openingId===s.id ? (
+                      <div style={{display:"flex",alignItems:"center",gap:8,color:C.accent,fontSize:12,fontWeight:600,flexShrink:0}}><Spinner size={18}/>Abriendo…</div>
+                    ) : !isViewer&&(
                       <div style={{display:"flex",gap:6,flexShrink:0}}>
                         <button className="btn" title="Editar materia y horario" onClick={e=>{e.stopPropagation();setClaseForm({initial:s});}} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"6px 9px"}}>✏️</button>
                         <button className="btn" title="Eliminar clase" onClick={e=>{e.stopPropagation();deleteSession(s);}} style={{background:"rgba(239,68,68,0.1)",color:C.danger,border:"none",borderRadius:8,padding:"6px 9px"}}>🗑️</button>
@@ -471,7 +497,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
               {/* Fecha activa + horas + estado de guardado */}
               <div style={{display:"flex",gap:10,alignItems:"flex-end",marginBottom:14,flexWrap:"wrap"}}>
                 <div style={{flex:2,minWidth:130}}>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:5}}>Fecha</div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:5,display:"flex",alignItems:"center",gap:6}}>Fecha{dateLoading&&<><Spinner size={11} color={C.accent}/><span style={{color:C.accent}}>cargando…</span></>}</div>
                   <input className="inp" type="date" value={selectedDate} onChange={e=>changeDate(e.target.value)}/>
                 </div>
                 <div style={{width:100,flexShrink:0}}>
@@ -566,7 +592,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
                   <button className="btn" onClick={()=>markAll("present")} style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>✅ Todos</button>
                   <button className="btn" onClick={()=>markAll("late")} style={{background:`${C.late}22`,color:C.late,border:`1px solid ${C.late}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>🕐 Todos</button>
                   <button className="btn" onClick={()=>markAll("absent")} style={{background:`${C.danger}22`,color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:9,padding:"8px 11px",fontSize:13}}>❌ Todos</button>
-                  <button className="btn" onClick={()=>setShowExport(true)} style={{background:`linear-gradient(135deg,${C.purple},${C.accent})`,color:"#fff",borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>📦 Exportar</button>
+                  <button className="btn" onClick={()=>setShowExport(true)} disabled={exporting} aria-busy={exporting} style={{background:`linear-gradient(135deg,${C.purple},${C.accent})`,color:"#fff",borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>{exporting?<span style={{display:"inline-flex",alignItems:"center",gap:6}}><Spinner size={12}/>Generando…</span>:"📦 Exportar"}</button>
                   <button className="btn" onClick={generarMensaje} title="Mensaje con docente, materia, fecha y alumnos con falta, para copiar"
                     style={{background:`${C.gold}22`,color:C.gold,border:`1.5px solid ${C.gold}66`,borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>
                     📋 Generar mensaje
@@ -577,12 +603,12 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
             {/* Filter chips */}
             <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
               {[["all","Todos",C.accent],["present","Presentes",C.success],["late","Retardos",C.late],["excused","Justificadas",C.excused],["absent","Ausentes",C.danger],["pending","Pendientes",C.muted]].map(([f,l,color])=>(
-                <button key={f} className="btn chip" onClick={()=>setFilter(f)} style={{background:filter===f?`${color}22`:"transparent",color:filter===f?color:C.muted,borderColor:filter===f?color:C.border}}>{l}</button>
+                <button key={f} className="btn chip" aria-pressed={filter===f} onClick={()=>setFilter(f)} style={{background:filter===f?`${color}22`:"transparent",color:filter===f?color:C.muted,borderColor:filter===f?color:C.border}}>{l}</button>
               ))}
             </div>
             {/* Student list */}
             {students.length===0?<Empty icon="👥" msg="No hay alumnos. Importa un Excel o agrégalos manualmente."/>:(
-              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8}}>
+              <div className={dateLoading?"is-loading":""} aria-busy={dateLoading} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:8}}>
                 {filteredStudents.map((s,i)=>{
                   const st = getStatus(s.id); const cfg = STATUS[st]; const reason = attendance[s.id]?.reason||"";
                   return(
@@ -620,7 +646,7 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
                           ].map(b=>{
                             const on = st===b.key;
                             return (
-                              <button key={b.key} className="btn" onClick={b.onClick}
+                              <button key={b.key} className={on?"btn pop":"btn"} onClick={b.onClick} aria-pressed={on} aria-label={`${b.label} — ${s.name}`}
                                 style={{background:on?b.color:`${b.color}15`,color:on?"#fff":b.color,border:`1.5px solid ${b.color}66`,borderRadius:8,
                                   padding:"6px 2px",minWidth:0,fontFamily:"inherit",fontWeight:on?700:600,
                                   display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,lineHeight:1.1}}>
@@ -642,11 +668,11 @@ export default function TeacherApp({ user, onLogout, onProfileChange }) {
         {/* ACTIVIDADES TAB */}
         {view==="attendance"&&activeSession&&mainTab==="activities"&&(
           <ActividadesModule key={activeSession.id} session={activeSession} students={students} isViewer={isViewer} showToast={showToast}
-            onDataChange={()=>loadEval(activeSession)} onExport={exportCalificaciones} onSessionChange={onSessionUpdated}/>
+            onDataChange={()=>loadEval(activeSession)} onExport={exportCalificaciones} exporting={exporting} onSessionChange={onSessionUpdated}/>
         )}
         {view==="attendance"&&activeSession&&mainTab==="grades"&&(
           <CalificacionesModule key={activeSession.id+gradesFilter} session={activeSession} students={students} isViewer={isViewer} showToast={showToast}
-            stats={stats} cfg={evalCfg} loading={evalLoading} onSessionChange={onSessionUpdated} onExport={exportCalificaciones} initialFilter={gradesFilter}/>
+            stats={stats} cfg={evalCfg} loading={evalLoading} onSessionChange={onSessionUpdated} onExport={exportCalificaciones} exporting={exporting} initialFilter={gradesFilter}/>
         )}
 
         {/* REPORT TAB */}

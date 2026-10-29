@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { sb, fetchAll } from "../lib/supabase";
 import { C, today, fmtDate } from "../lib/constants";
-import { Empty } from "./Shared";
+import { Empty, SkeletonList, BusyLabel, Spinner } from "./Shared";
 import { evalConfig, etiquetaRA, nuevoIdRA, guardarConfig } from "../lib/evaluacion";
 
 // Control de actividades / productos de una clase: qué alumnos entregaron.
@@ -76,9 +76,9 @@ function ActividadForm({ initial, ras, defRA, onSave, onClose }) {
           </div>
           {error && <div style={{color:C.danger,fontSize:12}}>{error}</div>}
           <div style={{display:"flex",gap:10}}>
-            <button className="btn" onClick={save} disabled={busy}
+            <button className="btn" onClick={save} disabled={busy} aria-busy={busy}
               style={{flex:1,background:`linear-gradient(135deg,${C.accent},${C.teal})`,color:"#fff",borderRadius:10,padding:"12px 0",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>
-              {busy ? "Guardando…" : initial ? "💾 Guardar" : "✅ Crear actividad"}
+              <BusyLabel busy={busy}>{initial ? "💾 Guardar" : "✅ Crear actividad"}</BusyLabel>
             </button>
             <button className="btn" onClick={onClose}
               style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 18px",fontSize:14,fontFamily:"inherit"}}>Cancelar</button>
@@ -102,7 +102,7 @@ function ScoreInput({ value, disabled, onCommit }) {
   );
 }
 
-export default function ActividadesModule({ session, students, isViewer, showToast, onDataChange, onExport, onSessionChange }) {
+export default function ActividadesModule({ session, students, isViewer, showToast, onDataChange, onExport, onSessionChange, exporting }) {
   const [acts, setActs]       = useState([]);
   const [marks, setMarks]     = useState({});   // activity_id -> { student_id: status }
   const [loading, setLoading] = useState(true);
@@ -219,7 +219,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
   const openMarks = open ? (marks[open.id] || {}) : {};
   const filtered = !open ? [] : students.filter(s => filter === "all" || (openMarks[s.id] || "pending") === filter);
 
-  if (loading) return <div style={{textAlign:"center",padding:"50px 0",color:C.muted}}>Cargando actividades…</div>;
+  if (loading) return <SkeletonList rows={3} avatar={false} label="Cargando actividades…"/>;
 
   // ── Detalle de una actividad ──
   if (open) {
@@ -265,7 +265,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
         )}
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
           {[["all","Todos",C.accent],["delivered","Entregó",C.success],["late","Tarde",C.late],["missing","No entregó",C.danger],["pending","Sin registro",C.muted]].map(([k,l,color]) => (
-            <button key={k} className="btn chip" onClick={() => setFilter(k)}
+            <button key={k} className="btn chip" aria-pressed={filter===k} onClick={() => setFilter(k)}
               style={{background:filter===k?`${color}22`:"transparent",color:filter===k?color:C.muted,borderColor:filter===k?color:C.border}}>{l}</button>
           ))}
         </div>
@@ -317,7 +317,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
           <div style={{color:C.muted,fontSize:12,marginTop:2}}>{acts.length} registrada{acts.length===1?"":"s"} · {students.length} alumnos</div>
         </div>
         <div style={{display:"flex",gap:8}}>
-          {acts.length > 0 && <button className="btn" onClick={exportXlsx} style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>📥 Excel</button>}
+          {acts.length > 0 && <button className="btn" onClick={exportXlsx} disabled={exporting} aria-busy={exporting} style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>{exporting ? <Spinner size={12}/> : "📥"} Excel</button>}
           {!isViewer && <button className="btn" onClick={() => setForm({ initial:null })} style={{background:`linear-gradient(135deg,${C.accent},${C.purple})`,color:"#fff",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>+ Nueva actividad</button>}
         </div>
       </div>
@@ -326,7 +326,7 @@ export default function ActividadesModule({ session, students, isViewer, showToa
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
           {[{ id:"todos", label:"Todos", n:acts.length }, ...ras.map(r => ({ id:r.id, label:etiquetaRA(r), title:r.nombre, n:acts.filter(a => a.ra === r.id).length })),
             ...(acts.some(a => !raDe(a)) ? [{ id:"sin", label:"Sin RA", n:acts.filter(a => !raDe(a)).length }] : [])].map(t => (
-            <button key={t.id} className="btn chip" onClick={() => setRaF(t.id)} title={t.title || ""}
+            <button key={t.id} className="btn chip" aria-pressed={raF===t.id} onClick={() => setRaF(t.id)} title={t.title || ""}
               style={{background:raF===t.id?`${C.accent}22`:"transparent",color:raF===t.id?C.accent:C.muted,borderColor:raF===t.id?C.accent:C.border}}>
               {t.label} <span style={{opacity:.7}}>({t.n})</span>
             </button>

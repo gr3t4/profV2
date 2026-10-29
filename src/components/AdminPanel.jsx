@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { sb } from "../lib/supabase";
 import { callAdminUsers } from "../lib/adminUsers";
 import { C, BRAND, fmtDate, fmtDT } from "../lib/constants";
-import { GlobalStyles, Glow, Toast, Empty, Pill, Avatar, StatusBadge, RoleBadge, BrandMark } from "./Shared";
+import { GlobalStyles, Glow, Toast, Empty, Pill, Avatar, StatusBadge, RoleBadge, BrandMark, SkeletonList } from "./Shared";
 
 export default function AdminPanel({ user, onLogout }) {
   const [tab, setTab]                           = useState("overview");
@@ -173,7 +173,7 @@ export default function AdminPanel({ user, onLogout }) {
       )}
 
       <main style={{maxWidth:1000,margin:"0 auto",padding:"20px 14px",position:"relative",zIndex:1}}>
-        {loading&&tab==="overview"&&<div style={{textAlign:"center",padding:"60px 0",color:C.muted}}>Cargando...</div>}
+        {loading&&tab==="overview"&&<SkeletonList rows={4} label="Cargando panel…"/>}
 
         {!loading&&tab==="overview"&&(
           <div style={{animation:"fadeUp .4s ease both"}}>

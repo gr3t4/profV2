@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { C } from "../lib/constants";
+import { Z } from "../lib/design";
 
 export function Empty({ icon, msg }) {
   return (
@@ -12,10 +13,57 @@ export function Empty({ icon, msg }) {
 
 export function Toast({ msg }) {
   return (
-    <div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",background:"#1e293b",border:`1px solid ${C.border}`,color:C.text,padding:"12px 24px",borderRadius:12,fontSize:14,fontWeight:500,boxShadow:"0 8px 32px rgba(0,0,0,0.4)",zIndex:1000,animation:"toastIn .3s ease",whiteSpace:"nowrap"}}>
+    <div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",background:"#1e293b",border:`1px solid ${C.border}`,color:C.text,padding:"12px 24px",borderRadius:12,fontSize:14,fontWeight:500,boxShadow:"0 8px 32px rgba(0,0,0,0.4)",zIndex:Z.toast,animation:"toastIn .3s ease",whiteSpace:"nowrap",maxWidth:"calc(100vw - 32px)",overflow:"hidden",textOverflow:"ellipsis"}} role="status" aria-live="polite">
       {msg}
     </div>
   );
+}
+
+// ── Estados de carga ──────────────────────────────────────────────
+export function Spinner({ size = 14, color, style }) {
+  return <span className="spin" aria-hidden="true" style={{width:size,height:size,color,...style}}/>;
+}
+
+// Bloque gris con brillo que ocupa el lugar del contenido mientras carga
+export function Skeleton({ w = "100%", h = 14, r = 8, style }) {
+  return <div className="sk" aria-hidden="true" style={{width:w,height:h,borderRadius:r,...style}}/>;
+}
+
+// Lista de tarjetas "fantasma" (clases, alumnos, actividades…)
+export function SkeletonList({ rows = 4, avatar = true, lines = 2, label = "Cargando…" }) {
+  return (
+    <div role="status" aria-live="polite" aria-label={label} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:10}}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"14px 16px",display:"flex",gap:12,alignItems:"center",opacity:1 - i * 0.12}}>
+          {avatar && <Skeleton w={44} h={44} r={12}/>}
+          <div style={{flex:1,display:"flex",flexDirection:"column",gap:8}}>
+            <Skeleton w={`${62 - (i % 3) * 10}%`} h={14}/>
+            {lines > 1 && <Skeleton w={`${40 + (i % 2) * 15}%`} h={10}/>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Barra de progreso delgada arriba de la pantalla (cargas que no bloquean)
+export function TopProgress({ show }) {
+  return show ? <div className="topbar" role="progressbar" aria-label="Cargando"/> : null;
+}
+
+// Pantalla completa de carga (arranque de la app)
+export function LoadingScreen({ msg = "Cargando…" }) {
+  return (
+    <div role="status" aria-live="polite" style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",gap:14,alignItems:"center",justifyContent:"center",fontFamily:"Inter,sans-serif"}}>
+      <BrandMark size={56}/>
+      <span style={{color:C.muted,fontSize:14}}>{msg}</span>
+    </div>
+  );
+}
+
+// Contenido de un botón que está guardando: spinner + texto
+export function BusyLabel({ busy, children, busyText = "Guardando…" }) {
+  return busy ? <span style={{display:"inline-flex",alignItems:"center",gap:8,justifyContent:"center"}}><Spinner size={14}/>{busyText}</span> : children;
 }
 
 export function Glow({ top, bottom, left, right, color, size="45vw" }) {
@@ -131,12 +179,49 @@ export function GlobalStyles() {
       ::-webkit-scrollbar{width:5px;height:5px;}
       ::-webkit-scrollbar-track{background:${C.surface};}
       ::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px;}
-      .btn{cursor:pointer;border:none;transition:all .18s;min-height:36px;}
-      .btn:hover{filter:brightness(1.12);}
-      .btn:active{filter:brightness(.95);}
-      .inp{background:${C.surface};border:1.5px solid ${C.border};color:${C.text};border-radius:8px;padding:10px 14px;font-size:15px!important;font-family:'Inter',sans-serif;transition:border-color .2s;width:100%;}
-      .inp:focus{border-color:${C.accent};}
-      .btn:focus:not(:focus-visible){outline:none;}
+      /* ══ Estados de interacción (ver DESIGN.md) ══
+         reposo → hover (solo con mouse) → presionado → foco con teclado → deshabilitado / ocupado */
+      html{-webkit-tap-highlight-color:transparent;}
+      .btn,.chip,.row-hover{touch-action:manipulation;-webkit-user-select:none;user-select:none;}
+      .btn{cursor:pointer;border:none;min-height:36px;position:relative;
+        transition:filter .18s ease, transform .12s ease, box-shadow .18s ease, background-color .18s ease, color .18s ease, opacity .18s ease;}
+      @media (hover:hover){
+        .btn:hover:not(:disabled):not([aria-busy="true"]){filter:brightness(1.15);}
+        .chip:hover:not(:disabled){filter:brightness(1.2);}
+        .row-hover:hover{background-color:rgba(255,255,255,0.035)!important;}
+      }
+      .btn:active:not(:disabled):not([aria-busy="true"]),.chip:active:not(:disabled){transform:scale(.96);filter:brightness(.92);}
+      .row-hover:active{transform:scale(.99);}
+      .btn:focus-visible,.chip:focus-visible,.row-hover:focus-visible{outline:2px solid ${C.gold};outline-offset:2px;}
+      .btn:focus:not(:focus-visible),.chip:focus:not(:focus-visible){outline:none;}
+      .btn:disabled,.chip:disabled{opacity:.5;cursor:not-allowed;filter:grayscale(.3);}
+      .btn[aria-busy="true"]{cursor:progress;opacity:.85;}
+      .btn[aria-pressed="true"]{box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);}
+      .is-loading{opacity:.55;pointer-events:none;transition:opacity .2s;}
+      .inp{background:${C.surface};border:1.5px solid ${C.border};color:${C.text};border-radius:8px;padding:10px 14px;font-size:15px!important;font-family:'Inter',sans-serif;transition:border-color .18s, box-shadow .18s;width:100%;}
+      @media (hover:hover){ .inp:hover:not(:disabled):not(:focus){border-color:${C.muted}88;} }
+      .inp:focus{border-color:${C.accent};box-shadow:0 0 0 3px ${C.accent}33;}
+      .inp:disabled{opacity:.55;cursor:not-allowed;}
+      .inp[aria-invalid="true"]{border-color:${C.danger};box-shadow:0 0 0 3px ${C.danger}22;}
+
+      /* ══ Estados de carga ══ */
+      .sk{position:relative;overflow:hidden;background:${C.border}66;border-radius:8px;}
+      .sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+        background:linear-gradient(90deg,transparent,rgba(255,255,255,.07),transparent);animation:skShine 1.3s ease-in-out infinite;}
+      @keyframes skShine{to{transform:translateX(100%);}}
+      .spin{display:inline-block;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite;vertical-align:-2px;flex-shrink:0;}
+      @keyframes spin{to{transform:rotate(360deg);}}
+      .topbar{position:fixed;top:0;left:0;right:0;height:3px;z-index:${Z.overlay};overflow:hidden;pointer-events:none;}
+      .topbar::after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-40%;
+        background:linear-gradient(90deg,${C.guinda},${C.success},${C.gold});animation:topbar 1.1s ease-in-out infinite;}
+      @keyframes topbar{to{left:100%;}}
+      @keyframes pop{0%{transform:scale(1);}40%{transform:scale(1.08);}100%{transform:scale(1);}}
+      .pop{animation:pop .22s ease;}
+      @media (prefers-reduced-motion: reduce){
+        *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;}
+        .sk::after,.topbar::after{animation:none!important;}
+        .spin{animation:spin 1.6s linear infinite!important;}
+      }
       .inp::placeholder{color:${C.muted};}
       select.inp option{background:${C.surface};color:${C.text};}
       textarea.inp{font-family:'Inter',sans-serif;}
@@ -175,7 +260,6 @@ export function GlobalStyles() {
       /* ── Phablet (≤640px) ── */
       @media(max-width:640px){
         main{padding:12px 10px!important;}
-        .btn:hover{filter:none!important;}
         .chip{padding:6px 10px!important;font-size:11px!important;}
         .grid-stats-6{grid-template-columns:repeat(3,1fr);gap:8px;}
         .grid-stats-5{grid-template-columns:repeat(3,1fr);gap:8px;}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GlobalStyles, BrandMark } from "./Shared";
+import { GlobalStyles, BrandMark, BusyLabel } from "./Shared";
 import { BRAND } from "../lib/constants";
 import PixelBat from "./PixelBat";
 import PixelGraveyard from "./PixelGraveyard";
@@ -125,11 +125,11 @@ export default function AuthScreen({ onLogin, onRegister }) {
             </div>
             {error && <div style={{background:`${T.danger}18`,border:`1px solid ${T.danger}44`,borderRadius:8,
               padding:"10px 14px",color:T.danger,fontSize:13,textAlign:"center"}}>{error}</div>}
-            <button onClick={submit} disabled={busy} style={{
+            <button className="btn" onClick={submit} disabled={busy} aria-busy={busy} style={{
               background:T.grad,color:"#fff",borderRadius:10,padding:"14px 0",fontSize:15,
               fontWeight:700,fontFamily:"inherit",border:"none",cursor:busy?"not-allowed":"pointer",
               marginTop:4,boxShadow:`0 4px 20px ${T.accent}55`,opacity:busy?.7:1,transition:"opacity .2s"}}>
-              {busy?"Conectando...":(mode==="login"?"Entrar":"Crear cuenta")}
+              <BusyLabel busy={busy} busyText="Conectando…">{mode==="login"?"Entrar":"Crear cuenta"}</BusyLabel>
             </button>
           </div>
         </>

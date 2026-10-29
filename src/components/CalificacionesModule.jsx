@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { C } from "../lib/constants";
 import { EVAL_DEFAULT, NIVEL, SIN_RA, etiquetaRA, nuevoIdRA, guardarConfig } from "../lib/evaluacion";
-import { Empty } from "./Shared";
+import { Empty, SkeletonList, BusyLabel, Spinner } from "./Shared";
 
 // ── Configuración de evaluación de la clase (resultados de aprendizaje y reglas) ──
 function ConfigModal({ session, cfg, onSaved, onClose }) {
@@ -79,9 +79,9 @@ function ConfigModal({ session, cfg, onSaved, onClose }) {
 
         {error && <div style={{color:C.danger,fontSize:12,marginBottom:10}}>{error}</div>}
         <div style={{display:"flex",gap:10}}>
-          <button className="btn" onClick={save} disabled={busy}
+          <button className="btn" onClick={save} disabled={busy} aria-busy={busy}
             style={{flex:1,background:`linear-gradient(135deg,${C.accent},${C.teal})`,color:"#fff",borderRadius:10,padding:"12px 0",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>
-            {busy ? "Guardando…" : "💾 Guardar"}
+            <BusyLabel busy={busy}>💾 Guardar</BusyLabel>
           </button>
           <button className="btn" onClick={() => setF(p => ({ ...EVAL_DEFAULT, ras: p.ras }))} title="Volver a los valores de inicio (no borra los resultados de aprendizaje)"
             style={{background:"none",color:C.muted,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 12px",fontSize:13,fontFamily:"inherit"}}>Restablecer</button>
@@ -96,12 +96,12 @@ function ConfigModal({ session, cfg, onSaved, onClose }) {
 
 const colorCal = (v, apr) => v === null || v === undefined ? C.muted : v < apr ? C.danger : C.success;
 
-export default function CalificacionesModule({ session, students, isViewer, showToast, stats, cfg, loading, onSessionChange, onExport, initialFilter }) {
+export default function CalificacionesModule({ session, students, isViewer, showToast, stats, cfg, loading, onSessionChange, onExport, initialFilter, exporting }) {
   const [vista, setVista]   = useState("todos"); // "todos" | id de RA
   const [filtro, setFiltro] = useState(initialFilter || "all"); // all | risk
   const [config, setConfig] = useState(false);
 
-  if (loading && !stats) return <div style={{textAlign:"center",padding:"50px 0",color:C.muted}}>Calculando calificaciones…</div>;
+  if (loading && !stats) return <SkeletonList rows={5} label="Calculando calificaciones…"/>;
   if (!stats) return <Empty icon="🎓" msg="No se pudieron cargar los datos. Revisa tu internet."/>;
 
   const { porAlumno, resumen, grupos } = stats;
@@ -122,7 +122,7 @@ export default function CalificacionesModule({ session, students, isViewer, show
           <div style={{color:C.muted,fontSize:12,marginTop:2}}>Por resultado de aprendizaje · aprobatoria {apr} · asistencia mínima {cfg.asistencia_min}%</div>
         </div>
         <div style={{display:"flex",gap:8}}>
-          <button className="btn" onClick={onExport} style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>📥 Excel</button>
+          <button className="btn" onClick={onExport} disabled={exporting} aria-busy={exporting} style={{background:`${C.success}22`,color:C.success,border:`1px solid ${C.success}44`,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>{exporting ? <Spinner size={12}/> : "📥"} Excel</button>
           {!isViewer && <button className="btn" onClick={() => setConfig(true)} style={{background:`${C.accent}22`,color:C.accent,border:`1px solid ${C.accent}44`,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>⚙️ Configurar</button>}
         </div>
       </div>
@@ -147,7 +147,7 @@ export default function CalificacionesModule({ session, students, isViewer, show
       {grupos.length > 0 && (
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:8}}>
           {[{ id:"todos", label:"Todos los RA" }, ...grupos.map(g => ({ id:g.id, label:etiquetaRA(g.ra), n:g.acts.length, title:g.ra?.nombre }))].map(t => (
-            <button key={t.id} className="btn chip" onClick={() => setVista(t.id)} title={t.title || ""}
+            <button key={t.id} className="btn chip" aria-pressed={vista===t.id} onClick={() => setVista(t.id)} title={t.title || ""}
               style={{background:vista===t.id?`${C.accent}22`:"transparent",color:vista===t.id?C.accent:C.muted,borderColor:vista===t.id?C.accent:C.border}}>
               {t.label}{t.n !== undefined && <span style={{opacity:.7}}> ({t.n})</span>}
             </button>
@@ -157,7 +157,7 @@ export default function CalificacionesModule({ session, students, isViewer, show
       {grupoSel?.ra?.nombre && <div style={{fontSize:12,color:C.text,marginBottom:8,padding:"6px 10px",background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}><b>{etiquetaRA(grupoSel.ra)}</b> · {grupoSel.ra.nombre}</div>}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
         {[["all","Todos"],["risk","⚠️ Solo en riesgo"]].map(([k, l]) => (
-          <button key={k} className="btn chip" onClick={() => setFiltro(k)}
+          <button key={k} className="btn chip" aria-pressed={filtro===k} onClick={() => setFiltro(k)}
             style={{background:filtro===k?`${C.warning}22`:"transparent",color:filtro===k?C.warning:C.muted,borderColor:filtro===k?C.warning:C.border}}>{l}</button>
         ))}
       </div>
